@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Notificaciones{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0 fw-bold"><i class="bi bi-bell-fill me-2"></i>Notificaciones</h4>
+  {% if notificaciones %}
+  <form method="post" action="{% url 'users:notificaciones_leer' %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-check-all"></i> Marcar todas como leídas
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="list-group list-group-flush">
+    {% for n in notificaciones %}
+    <div class="list-group-item {% if not n.leida %}border-start border-primary border-3{% endif %} px-3 py-2">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fw-semibold small {% if n.leida %}text-muted{% endif %}">{{ n.titulo }}</div>
+          {% if n.cuerpo %}<div class="small text-muted">{{ n.cuerpo }}</div>{% endif %}
+          <div class="text-muted" style="font-size:.7rem;">{{ n.created_at|date:"d/m/Y H:i" }}</div>
+        </div>
+        <div class="d-flex gap-1 ms-2 flex-shrink-0">
+          {% if n.url %}
+          <a href="{{ n.url }}" class="btn btn-sm btn-outline-primary py-0 px-1" style="font-size:.72rem;">Ver</a>
+          {% endif %}
+          {% if not n.leida %}
+          <form method="post" action="{% url 'users:notificacion_leer' n.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1" style="font-size:.72rem;">Leído</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="list-group-item text-center py-4 text-muted">
+      <i class="bi bi-bell-slash fs-3 d-block mb-2"></i>
+      Sin notificaciones.
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

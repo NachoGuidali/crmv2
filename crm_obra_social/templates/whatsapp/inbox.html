@@ -1,0 +1,921 @@
+{% extends "base.html" %}
+{% block title %}Inbox WhatsApp{% endblock %}
+{% block nav_whatsapp %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+.wa-wrap {
+  display: flex;
+  height: calc(100vh - var(--topbar-h));
+  overflow: hidden;
+  margin: -20px -22px 0;
+}
+.wa-sidebar {
+  width: 340px; min-width: 240px; max-width: 340px;
+  display: flex; flex-direction: column;
+  background: var(--bg2); border-right: 1px solid var(--border); overflow: hidden;
+}
+/* ── Mobile: slide sidebar/chat ── */
+@media (max-width: 767.98px) {
+  .wa-wrap { position: relative; overflow: hidden; margin: -10px -12px 0; }
+  .wa-sidebar {
+    position: absolute; top: 0; left: 0; z-index: 2;
+    width: 100%; max-width: 100%; min-width: 0; height: 100%;
+    transition: transform .22s ease;
+  }
+  .wa-main {
+    position: absolute; top: 0; left: 0; z-index: 1;
+    width: 100%; height: 100%;
+    transform: translateX(100%);
+    transition: transform .22s ease;
+  }
+  .wa-wrap.wa-conv-selected .wa-sidebar { transform: translateX(-100%); }
+  .wa-wrap.wa-conv-selected .wa-main { transform: translateX(0); }
+  .wa-back-btn { display: flex !important; }
+  .bubble { max-width: 88%; }
+  .wa-main-header { flex-wrap: wrap; gap: 6px; }
+  .wa-main-header .d-flex.gap-2 { flex-wrap: wrap; }
+  audio { max-width: 180px; }
+}
+.wa-sidebar-header {
+  padding: 10px 14px;
+  background: #0a1520;
+  color: var(--text);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.wa-sidebar-filters {
+  padding: 8px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.wa-conv-list { flex: 1; overflow-y: auto; }
+.wa-conv-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
+  text-decoration: none; color: var(--text); transition: background .1s;
+}
+.wa-conv-item:hover { background: var(--bg3); color: var(--text); }
+.wa-conv-item.active { background: var(--bg3); border-left: 2px solid var(--blue); color: var(--text); }
+.wa-conv-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--bg4); display: flex; align-items: center;
+  justify-content: center; font-size: 1rem; flex-shrink: 0; color: var(--text2);
+}
+.wa-conv-info { flex: 1; overflow: hidden; min-width: 0; }
+.wa-conv-name { font-weight: 600; font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.wa-conv-sub  { font-size: .74rem; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-conv-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; }
+.wa-conv-time { font-size: .68rem; color: var(--text3); white-space: nowrap; }
+.wa-main {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  background: #060c14;
+}
+.wa-main-header {
+  padding: 9px 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.wa-chat-area {
+  flex: 1; overflow-y: auto; padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.wa-reply-area {
+  padding: 10px 14px; background: var(--bg2);
+  border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.wa-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; color: var(--text3);
+}
+.bubble {
+  max-width: 72%; border-radius: 12px; padding: 8px 12px;
+  font-size: .875rem; word-break: break-word; line-height: 1.45;
+}
+.bubble-in  {
+  align-self: flex-start;
+  background: var(--bg3);
+  border-radius: 4px 12px 12px 12px;
+  color: var(--text);
+}
+.bubble-out {
+  align-self: flex-end;
+  background: #1a3a5c;
+  border-radius: 12px 4px 12px 12px;
+  color: var(--text);
+}
+.bubble-time { font-size: .67rem; color: var(--text3); margin-top: 3px; }
+.media-thumb { max-width: 200px; max-height: 180px; border-radius: 8px; cursor: pointer; }
+audio { max-width: 220px; }
+.wa-send-tabs .nav-link { padding: 4px 10px; font-size: .78rem; }
+.wa-send-tabs .nav-link { color: var(--text2); border-color: var(--border); }
+.wa-send-tabs .nav-link.active { color: var(--blue); border-color: var(--border) var(--border) var(--bg2); background: var(--bg2); }
+#tab-template, #tab-interactive {
+  background: var(--bg2) !important;
+  border-color: var(--border) !important;
+}
+#plantillaPreview { background: var(--bg3) !important; color: var(--text2) !important; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wa-wrap {% if selected_conv %}wa-conv-selected{% endif %}" id="waWrap">
+
+  <!-- LEFT: conversation sidebar -->
+  <div class="wa-sidebar">
+    <div class="wa-sidebar-header">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-whatsapp"></i>
+        <span class="fw-semibold">WhatsApp</span>
+        <span class="badge bg-danger {% if unread_total == 0 %}d-none{% endif %}" id="unreadBadge">{{ unread_total }}</span>
+        <span class="badge text-white d-none" id="handoffBadge"
+              style="background:var(--green); animation: blink 1s step-end infinite; font-size:.7rem;">
+          <i class="bi bi-person-raised-hand me-1"></i><span id="handoffCount">0</span> LISTO
+        </span>
+      </div>
+      <button class="btn btn-sm btn-outline-light py-1 px-2" title="Nueva conversación" data-bs-toggle="modal" data-bs-target="#nuevaConvModal">
+        <i class="bi bi-pencil-square"></i>
+      </button>
+    </div>
+
+    <div class="wa-sidebar-filters">
+      <form method="get" class="mb-2">
+        {% if selected_conv %}<input type="hidden" name="conv" value="{{ selected_conv.pk }}">{% endif %}
+        {% if stage %}<input type="hidden" name="stage" value="{{ stage }}">{% endif %}
+        {% if solo_no_leidos %}<input type="hidden" name="no_leidos" value="1">{% endif %}
+        <div class="input-group input-group-sm">
+          <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Buscar...">
+          <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+        </div>
+      </form>
+      <div class="d-flex gap-2 align-items-center">
+        <form method="get" class="flex-grow-1">
+          {% if selected_conv %}<input type="hidden" name="conv" value="{{ selected_conv.pk }}">{% endif %}
+          {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+          {% if solo_no_leidos %}<input type="hidden" name="no_leidos" value="1">{% endif %}
+          <select name="stage" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Todas las etapas</option>
+            {% for s in stage_choices %}
+            <option value="{{ s.pk }}" {% if stage == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.pipeline.nombre }} — {{ s.nombre }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <a href="?{% if q %}q={{ q }}&{% endif %}{% if stage %}stage={{ stage }}&{% endif %}{% if not solo_no_leidos %}no_leidos=1{% endif %}{% if selected_conv %}&conv={{ selected_conv.pk }}{% endif %}"
+           class="btn btn-sm {% if solo_no_leidos %}btn-success{% else %}btn-outline-secondary{% endif %} flex-shrink-0"
+           title="{% if solo_no_leidos %}Ver todas{% else %}Solo no leídas{% endif %}">
+          <i class="bi bi-envelope{% if solo_no_leidos %}-fill{% endif %}"></i>
+        </a>
+        <a href="?{% if q %}q={{ q }}&{% endif %}{% if stage %}stage={{ stage }}&{% endif %}{% if not archivadas %}archivadas=1{% endif %}"
+           class="btn btn-sm {% if archivadas %}btn-secondary{% else %}btn-outline-secondary{% endif %} flex-shrink-0"
+           title="{% if archivadas %}Ver inbox activo{% else %}Ver archivadas{% endif %}">
+          <i class="bi bi-archive{% if archivadas %}-fill{% endif %}"></i>
+        </a>
+      </div>
+      {% if archivadas %}
+      <div class="small mt-2" style="color:var(--text3);"><i class="bi bi-info-circle"></i> Mostrando conversaciones archivadas.</div>
+      {% endif %}
+    </div>
+
+    <div class="wa-conv-list" id="convList">
+      {% for conv in conversaciones %}
+      <a href="?conv={{ conv.pk }}{% if q %}&q={{ q }}{% endif %}{% if stage %}&stage={{ stage }}{% endif %}{% if solo_no_leidos %}&no_leidos=1{% endif %}"
+         class="wa-conv-item {% if selected_conv and selected_conv.pk == conv.pk %}active{% endif %}"
+         id="conv-{{ conv.pk }}">
+        <div class="wa-conv-avatar"><i class="bi bi-person"></i></div>
+        <div class="wa-conv-info">
+          <div class="wa-conv-name">{{ conv.get_display_name }}</div>
+          <div class="wa-conv-sub">
+            {% if conv.contacto and conv.contacto.stage %}{{ conv.contacto.stage.nombre }} · {% endif %}{{ conv.telefono }}
+          </div>
+        </div>
+        <div class="wa-conv-meta">
+          <span class="wa-conv-time">{{ conv.ultimo_mensaje_at|date:"d/m H:i"|default:"" }}</span>
+          {% if conv.estado == 'pendiente' and not conv.bot_n8n_activo %}
+          <span class="badge" style="background:var(--green); font-size:.65rem; animation: blink 1s step-end infinite;">LISTO</span>
+          {% elif conv.estado == 'pendiente' %}
+          <span class="badge bg-warning" style="font-size:.65rem; color:#000;">BOT</span>
+          {% elif conv.estado == 'cerrada' %}
+          <span class="badge bg-secondary" style="font-size:.65rem;">CERRADA</span>
+          {% endif %}
+          <span class="badge bg-danger rounded-pill conv-unread-badge {% if conv.mensajes_no_leidos == 0 %}d-none{% endif %}">{{ conv.mensajes_no_leidos }}</span>
+        </div>
+      </a>
+      {% empty %}
+      <div class="text-center text-muted py-5 px-3">
+        <i class="bi bi-chat-dots" style="font-size:2.5rem;opacity:.3;"></i>
+        <p class="mt-2 small">Sin conversaciones{% if q or stage %} con esos filtros{% endif %}.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- RIGHT: chat panel -->
+  <div class="wa-main">
+    {% if selected_conv %}
+
+    <!-- Chat header -->
+    <div class="wa-main-header">
+      <a href="{% url 'whatsapp:inbox' %}" class="btn btn-sm btn-outline-secondary py-1 px-2 wa-back-btn d-none me-1" title="Volver a conversaciones">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <div class="wa-conv-avatar" style="width:40px;height:40px;font-size:1.1rem;">
+        <i class="bi bi-person"></i>
+      </div>
+      <div class="flex-grow-1 overflow-hidden">
+        <div class="fw-semibold text-truncate">{{ selected_conv.get_display_name }}</div>
+        <div class="text-muted small">
+          {{ selected_conv.telefono }}
+          {% if selected_conv.contacto %}
+          · <a href="{% url 'contactos:detail' selected_conv.contacto.pk %}" class="text-decoration-none text-muted">{{ selected_conv.contacto.stage.nombre|default:selected_conv.contacto.tipo.nombre }}</a>
+          {% endif %}
+        </div>
+      </div>
+      <div class="d-flex gap-2 align-items-center flex-shrink-0">
+        {% if selected_conv.contacto %}
+        <a href="{% url 'contactos:detail' selected_conv.contacto.pk %}" class="btn btn-sm btn-outline-secondary py-1" title="Ver contacto">
+          <i class="bi bi-person"></i>
+        </a>
+        {% endif %}
+        <!-- Estado badge + cerrar -->
+        {% if selected_conv.estado == 'pendiente' %}
+        <span class="badge" style="background:var(--amber); color:#000; font-size:.72rem;">PENDIENTE</span>
+        {% elif selected_conv.estado == 'abierta' %}
+        <span class="badge bg-success" style="font-size:.72rem;">ABIERTA</span>
+        {% elif selected_conv.estado == 'cerrada' %}
+        <span class="badge bg-secondary" style="font-size:.72rem;">CERRADA</span>
+        {% endif %}
+        {% if selected_conv.estado != 'cerrada' %}
+        <button class="btn btn-sm btn-outline-secondary py-1" title="Cerrar conversación"
+                onclick="cerrarConversacion({{ selected_conv.pk }})">
+          <i class="bi bi-check2-circle"></i>
+        </button>
+        {% endif %}
+        {% if selected_conv.archivada %}
+        <button class="btn btn-sm btn-outline-secondary py-1" title="Desarchivar conversación"
+                onclick="archivarConversacion({{ selected_conv.pk }}, false)">
+          <i class="bi bi-box-arrow-up"></i>
+        </button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary py-1" title="Archivar conversación"
+                onclick="archivarConversacion({{ selected_conv.pk }}, true)">
+          <i class="bi bi-archive"></i>
+        </button>
+        {% endif %}
+        <!-- Bot toggles -->
+        <button id="inboxToggleCrm"
+                class="btn btn-sm {% if selected_conv.bot_crm_activo %}btn-success{% else %}btn-outline-secondary{% endif %} py-1 px-2"
+                onclick="toggleBot('crm', {% if selected_conv.bot_crm_activo %}true{% else %}false{% endif %})"
+                title="Bot CRM">
+          <i class="bi bi-gear"></i> Bot CRM
+        </button>
+        <button id="inboxToggleN8n"
+                class="btn btn-sm {% if selected_conv.bot_n8n_activo %}btn-success{% else %}btn-outline-secondary{% endif %} py-1 px-2"
+                onclick="toggleBot('n8n', {% if selected_conv.bot_n8n_activo %}true{% else %}false{% endif %})"
+                title="Bot n8n">
+          <i class="bi bi-lightning"></i> Bot n8n
+        </button>
+        {% if request.user.can_see_all_leads and agents %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="assign_agent">
+          <input type="hidden" name="conv_pk" value="{{ selected_conv.pk }}">
+          <input type="hidden" name="_q" value="{{ q }}">
+          <input type="hidden" name="_stage" value="{{ stage }}">
+          <input type="hidden" name="_no_leidos" value="{{ solo_no_leidos }}">
+          <select name="agente_id" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Sin agente</option>
+            {% for a in agents %}
+            <option value="{{ a.pk }}" {% if selected_conv.agente_id == a.pk %}selected{% endif %}>{{ a.get_full_name }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Chat bubbles -->
+    <div class="wa-chat-area" id="chatContainer">
+      {% for msg in mensajes %}
+      <div class="d-flex {% if msg.direccion == 'out' %}justify-content-end{% endif %}" data-msg-id="{{ msg.pk }}">
+        <div class="bubble {% if msg.direccion == 'out' %}bubble-out{% else %}bubble-in{% endif %}">
+          {% if msg.tipo == 'image' %}
+            {% if msg.media_url %}
+            <a href="{{ msg.media_url }}" target="_blank">
+              <img src="{{ msg.media_url }}" class="media-thumb" alt="Imagen" onerror="this.parentElement.innerHTML='[Imagen no disponible]'">
+            </a>
+            {% else %}<i class="bi bi-image text-muted"></i> <span class="text-muted small">Imagen</span>{% endif %}
+            {% if msg.contenido %}<div class="small mt-1">{{ msg.contenido }}</div>{% endif %}
+          {% elif msg.tipo == 'video' %}
+            {% if msg.media_url %}<a href="{{ msg.media_url }}" target="_blank" class="d-flex align-items-center gap-1 text-decoration-none"><i class="bi bi-camera-video me-1"></i>{{ msg.media_filename|default:"Video" }}</a>
+            {% else %}<i class="bi bi-camera-video text-muted"></i> <span class="text-muted small">Video</span>{% endif %}
+            {% if msg.contenido %}<div class="small mt-1">{{ msg.contenido }}</div>{% endif %}
+          {% elif msg.tipo == 'audio' %}
+            {% if msg.media_url %}
+            <audio controls style="max-width:240px;height:36px;">
+              <source src="{{ msg.media_url }}" type="{{ msg.media_mime|default:'audio/ogg' }}">
+              Audio no disponible
+            </audio>
+            {% else %}<i class="bi bi-mic text-muted"></i> <span class="text-muted small">Audio</span>{% endif %}
+          {% elif msg.tipo == 'document' %}
+            {% if msg.media_url %}
+            <a href="{{ msg.media_url }}" target="_blank" class="d-flex align-items-center gap-1 text-decoration-none">
+              <i class="bi bi-file-earmark-arrow-down text-primary fs-5"></i>
+              <span>{{ msg.media_filename|default:msg.contenido|default:"Documento" }}</span>
+            </a>
+            {% else %}<i class="bi bi-file-earmark text-muted"></i> <span class="text-muted small">{{ msg.contenido|default:"Documento" }}</span>{% endif %}
+          {% elif msg.tipo == 'interactive' %}
+            <div>{{ msg.contenido|linebreaksbr }}</div>
+          {% else %}
+            {{ msg.contenido|linebreaksbr }}
+          {% endif %}
+          <div class="bubble-time d-flex justify-content-between align-items-center gap-2">
+            <span>{{ msg.timestamp|date:"d/m H:i" }}</span>
+            {% if msg.direccion == 'out' %}
+            <span>
+              {% if msg.status == 'read' %}<i class="bi bi-check2-all text-primary"></i>
+              {% elif msg.status == 'delivered' %}<i class="bi bi-check2-all"></i>
+              {% elif msg.status == 'sent' %}<i class="bi bi-check2"></i>
+              {% elif msg.status == 'failed' %}<i class="bi bi-x-circle text-danger" title="{{ msg.error_detalle }}"></i>
+              {% else %}<i class="bi bi-clock"></i>{% endif %}
+            </span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% empty %}
+      <div class="text-center text-muted py-4" id="empty-placeholder">Sin mensajes todavía.</div>
+      {% endfor %}
+    </div>
+
+    <!-- Reply area -->
+    <div class="wa-reply-area">
+
+      <!-- Text + media send -->
+      <div class="mb-2">
+        <form method="post" class="d-flex gap-2" id="textForm">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="send_text">
+          <input type="hidden" name="conv_pk" value="{{ selected_conv.pk }}">
+          <input type="hidden" name="_q" value="{{ q }}">
+          <input type="hidden" name="_stage" value="{{ stage }}">
+          <input type="hidden" name="_no_leidos" value="{{ solo_no_leidos }}">
+          <!-- Attachment button -->
+          <label class="btn btn-outline-secondary btn-sm px-2 mb-0 flex-shrink-0" id="attachLabel"
+                 title="Enviar imagen o archivo" style="cursor:pointer;">
+            <i class="bi bi-paperclip" id="attachIcon"></i>
+            <input type="file" id="mediaFileInput" style="display:none"
+                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.zip">
+          </label>
+          <input type="text" name="body" id="textInput" class="form-control form-control-sm" placeholder="Escribí un mensaje..." autocomplete="off">
+          <button type="submit" class="btn btn-success btn-sm px-3"><i class="bi bi-send"></i></button>
+        </form>
+        <!-- Media upload progress bar (hidden by default) -->
+        <div id="mediaUploadBar" class="mt-1" style="display:none;">
+          <div class="d-flex align-items-center gap-2">
+            <div class="progress flex-grow-1" style="height:4px;">
+              <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width:100%"></div>
+            </div>
+            <span class="small text-muted" id="mediaUploadName"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Template / Interactive tabs -->
+      <ul class="nav nav-tabs wa-send-tabs" id="sendTabs">
+        <li class="nav-item">
+          <a class="nav-link active" href="#" data-tab="template"><i class="bi bi-file-text"></i> Plantilla</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" data-tab="interactive"><i class="bi bi-ui-checks"></i> Botones</a>
+        </li>
+      </ul>
+
+      <!-- Template sender -->
+      <div id="tab-template" class="border border-top-0 p-2 rounded-bottom bg-white">
+        {% if plantillas %}
+        <form method="post" id="templateForm">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="send_template">
+          <input type="hidden" name="conv_pk" value="{{ selected_conv.pk }}">
+          <input type="hidden" name="_q" value="{{ q }}">
+          <input type="hidden" name="_stage" value="{{ stage }}">
+          <input type="hidden" name="_no_leidos" value="{{ solo_no_leidos }}">
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+              <select name="plantilla_id" class="form-select form-select-sm" id="plantillaSelect">
+                <option value="">— Seleccioná una plantilla —</option>
+                {% for p in plantillas %}
+                <option value="{{ p.pk }}" data-vars='{{ p.variables|safe }}' data-cuerpo="{{ p.cuerpo }}">{{ p.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-5" id="varFields"></div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-outline-success btn-sm"><i class="bi bi-send"></i> Enviar</button>
+            </div>
+          </div>
+          <div id="plantillaPreview" class="mt-1 p-2 bg-light rounded small text-muted" style="display:none;white-space:pre-wrap;"></div>
+        </form>
+        {% else %}
+        <p class="text-muted small mb-0">Sin plantillas. <a href="{% url 'whatsapp:plantilla_list' %}">Crear plantillas</a></p>
+        {% endif %}
+      </div>
+
+      <!-- Interactive sender -->
+      <div id="tab-interactive" class="border border-top-0 p-2 rounded-bottom bg-white" style="display:none">
+        <form method="post" id="interactiveForm">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="send_interactive">
+          <input type="hidden" name="conv_pk" value="{{ selected_conv.pk }}">
+          <input type="hidden" name="_q" value="{{ q }}">
+          <input type="hidden" name="_stage" value="{{ stage }}">
+          <input type="hidden" name="_no_leidos" value="{{ solo_no_leidos }}">
+          <div class="row g-2">
+            <div class="col-12">
+              <textarea name="interactive_body" class="form-control form-control-sm" rows="2" placeholder="Cuerpo del mensaje *" required></textarea>
+            </div>
+            <div class="col-6"><input type="text" name="btn_title" class="form-control form-control-sm" placeholder="Botón 1" maxlength="20"></div>
+            <div class="col-6"><input type="text" name="btn_title" class="form-control form-control-sm" placeholder="Botón 2 (opcional)" maxlength="20"></div>
+            <div class="col-6"><input type="text" name="btn_title" class="form-control form-control-sm" placeholder="Botón 3 (opcional)" maxlength="20"></div>
+            <div class="col-6 d-flex align-items-end">
+              <button type="submit" class="btn btn-outline-primary btn-sm w-100"><i class="bi bi-ui-checks"></i> Enviar</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% else %}
+    <div class="wa-empty">
+      <i class="bi bi-whatsapp" style="font-size:3.5rem;color:#25d366;opacity:.45;"></i>
+      <h5 class="mt-3 fw-normal text-muted">Seleccioná una conversación</h5>
+      <p class="small text-muted">Elegí un chat de la lista para ver los mensajes.</p>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const INBOX_UPDATES_URL = "{% url 'whatsapp:inbox_updates_api' %}";
+const INBOX_SSE_URL = "{% url 'whatsapp:inbox_sse' %}";
+{% if selected_conv %}
+let lastMsgId = {{ last_msg_id }};
+{% endif %}
+
+function scrollChat() {
+  const c = document.getElementById('chatContainer');
+  if (c) c.scrollTop = c.scrollHeight;
+}
+scrollChat();
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderContenido(msg) {
+  const url   = msg.media_url || '';
+  const fname = msg.media_filename || msg.contenido || '';
+  const mime  = (msg.media_mime || '').split(';')[0];
+  const cap   = msg.contenido ? '<div class="small mt-1">' + escHtml(msg.contenido) + '</div>' : '';
+
+  if (msg.tipo === 'image' && url)
+    return '<a href="' + escHtml(url) + '" target="_blank">'
+         + '<img src="' + escHtml(url) + '" class="media-thumb" alt="Imagen"'
+         + ' onerror="this.parentElement.innerHTML=\'[Imagen no disponible]\'">'
+         + '</a>' + cap;
+
+  if (msg.tipo === 'audio' && url)
+    return '<audio controls style="max-width:240px;height:36px;">'
+         + '<source src="' + escHtml(url) + '" type="' + escHtml(mime || 'audio/ogg') + '">'
+         + 'Audio no disponible</audio>';
+
+  if (msg.tipo === 'video' && url)
+    return '<a href="' + escHtml(url) + '" target="_blank" class="d-flex align-items-center gap-1 text-decoration-none">'
+         + '<i class="bi bi-camera-video me-1"></i>' + escHtml(fname || 'Video') + '</a>' + cap;
+
+  if (msg.tipo === 'document' && url)
+    return '<a href="' + escHtml(url) + '" target="_blank" class="d-flex align-items-center gap-1 text-decoration-none">'
+         + '<i class="bi bi-file-earmark-arrow-down text-primary fs-5"></i>'
+         + escHtml(fname || 'Documento') + '</a>' + cap;
+
+  return escHtml(msg.contenido || '').replace(/\n/g,'<br>');
+}
+
+function renderBubble(msg) {
+  const wrap = document.createElement('div');
+  wrap.className = 'd-flex ' + (msg.direccion === 'out' ? 'justify-content-end' : '');
+  wrap.dataset.msgId = msg.id;
+  const body = renderContenido(msg);
+  const icons = {read:'bi-check2-all text-primary', delivered:'bi-check2-all', sent:'bi-check2', failed:'bi-x-circle text-danger', pending:'bi-clock'};
+  const statusIcon = msg.direccion === 'out' ? '<i class="bi ' + (icons[msg.status] || 'bi-clock') + '"></i>' : '';
+  wrap.innerHTML = '<div class="bubble ' + (msg.direccion === 'out' ? 'bubble-out' : 'bubble-in') + '">'
+    + body
+    + '<div class="bubble-time d-flex justify-content-between align-items-center gap-2">'
+    + '<span>' + escHtml(msg.timestamp) + '</span>'
+    + (msg.direccion === 'out' ? '<span>' + statusIcon + '</span>' : '')
+    + '</div></div>';
+  const chat = document.getElementById('chatContainer');
+  const empty = document.getElementById('empty-placeholder');
+  if (empty) empty.remove();
+  chat.appendChild(wrap);
+}
+
+// ── Notification helpers ──────────────────────────────────────────────────────
+let _notifAudio = null;
+let _tabFlashInterval = null;
+let _lastHandoffCount = 0;
+const _originalTitle = document.title;
+
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.02);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.35);
+  } catch(e) {}
+}
+
+function startTabFlash(msg) {
+  if (_tabFlashInterval) return;
+  let on = true;
+  _tabFlashInterval = setInterval(() => {
+    document.title = on ? ('🔔 ' + msg) : _originalTitle;
+    on = !on;
+  }, 900);
+}
+
+function stopTabFlash() {
+  if (_tabFlashInterval) { clearInterval(_tabFlashInterval); _tabFlashInterval = null; }
+  document.title = _originalTitle;
+}
+
+// Stop flash when user focuses the tab
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _lastHandoffCount === 0) stopTabFlash();
+});
+
+function applyInboxUpdate(data) {
+  // Unread badge
+  const badge = document.getElementById('unreadBadge');
+  if (badge) {
+    if (data.unread_total > 0) {
+      badge.textContent = data.unread_total;
+      badge.classList.remove('d-none');
+    } else {
+      badge.classList.add('d-none');
+    }
+  }
+  // Mark unread convs
+  if (data.conv_ids) {
+    document.querySelectorAll('[id^="conv-"]').forEach(el => {
+      const cid = parseInt(el.id.replace('conv-', ''));
+      const b = el.querySelector('.conv-unread-badge');
+      if (b && data.conv_ids.includes(cid)) b.classList.remove('d-none');
+    });
+  }
+  // Handoff / LISTO notification
+  const hCount = data.pendiente_count || 0;
+  const hBadge = document.getElementById('handoffBadge');
+  const hNum   = document.getElementById('handoffCount');
+  if (hBadge && hNum) {
+    hNum.textContent = hCount;
+    hBadge.classList.toggle('d-none', hCount === 0);
+  }
+  // Trigger notification only on NEW handoffs
+  if (hCount > _lastHandoffCount) {
+    playNotifSound();
+    startTabFlash(hCount + ' conversación(es) lista(s)');
+  } else if (hCount === 0) {
+    stopTabFlash();
+  }
+  _lastHandoffCount = hCount;
+}
+
+// ── Live updates via SSE (con fallback a polling si falla) ────────────────────
+let sseSource = null;
+let lastInboxHash = '';
+let _ssePollFallback = null;
+
+function sseUrl() {
+  let url = INBOX_SSE_URL + '?';
+  {% if selected_conv %}
+  url += `conv_pk={{ selected_conv.pk }}&last_msg_id=${lastMsgId}&`;
+  {% endif %}
+  return url + `last_inbox_hash=${encodeURIComponent(lastInboxHash)}`;
+}
+
+function connectSSE() {
+  if (sseSource) sseSource.close();
+  sseSource = new EventSource(sseUrl());
+
+  sseSource.addEventListener('message', e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (document.querySelector(`[data-msg-id="${msg.id}"]`)) return;
+      lastMsgId = Math.max(lastMsgId, msg.id);
+      renderBubble(msg);
+      scrollChat();
+    } catch (err) {}
+  });
+
+  sseSource.addEventListener('inbox', e => {
+    try {
+      const data = JSON.parse(e.data);
+      lastInboxHash = data.hash || lastInboxHash;
+      applyInboxUpdate(data);
+    } catch (err) {}
+  });
+
+  sseSource.onerror = () => {
+    sseSource.close();
+    sseSource = null;
+    setTimeout(connectSSE, 2500);
+  };
+}
+
+if (typeof EventSource !== 'undefined') {
+  connectSSE();
+} else {
+  // Fallback for browsers without EventSource support
+  _ssePollFallback = setInterval(() => {
+    fetch(INBOX_UPDATES_URL).then(r => r.json()).then(applyInboxUpdate).catch(() => {});
+  }, 6000);
+}
+
+// Cerrar conversación
+function cerrarConversacion(pk) {
+  if (!confirm('¿Marcar esta conversación como cerrada?')) return;
+  fetch('/whatsapp/conversacion/' + pk + '/cerrar/', {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) location.reload();
+  });
+}
+
+function archivarConversacion(pk, archivar) {
+  const msg = archivar ? '¿Archivar esta conversación? Dejará de aparecer en el inbox activo.' : '¿Volver a mostrar esta conversación en el inbox activo?';
+  if (!confirm(msg)) return;
+  const action = archivar ? 'archivar' : 'desarchivar';
+  fetch('/whatsapp/conversacion/' + pk + '/' + action + '/', {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) window.location = "{% url 'whatsapp:inbox' %}";
+  });
+}
+
+// Send tab switching
+document.querySelectorAll('[data-tab]').forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('[data-tab]').forEach(l => l.classList.remove('active'));
+    link.classList.add('active');
+    const tab = link.dataset.tab;
+    document.getElementById('tab-template').style.display = tab === 'template' ? '' : 'none';
+    document.getElementById('tab-interactive').style.display = tab === 'interactive' ? '' : 'none';
+  });
+});
+
+// Template variable fields + preview
+const plantillaSelect = document.getElementById('plantillaSelect');
+if (plantillaSelect) {
+  plantillaSelect.addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    let vars = [];
+    try { vars = JSON.parse(opt.dataset.vars || '[]'); } catch(e) {}
+    const container = document.getElementById('varFields');
+    container.innerHTML = '';
+    vars.forEach((v, i) => {
+      container.innerHTML += `<input type="text" name="var_${i+1}" class="form-control form-control-sm mb-1 var-input" placeholder="${v || 'Variable '+(i+1)}">`;
+    });
+    const preview = document.getElementById('plantillaPreview');
+    if (opt.value) { preview.style.display = ''; preview.textContent = opt.dataset.cuerpo || ''; }
+    else preview.style.display = 'none';
+    container.querySelectorAll('.var-input').forEach(inp => inp.addEventListener('input', updatePreview));
+  });
+  function updatePreview() {
+    const opt = plantillaSelect.options[plantillaSelect.selectedIndex];
+    let text = opt.dataset.cuerpo || '';
+    document.querySelectorAll('.var-input').forEach((inp, i) => {
+      text = text.replace('{{' + (i+1) + '}}', inp.value || '{{' + (i+1) + '}}');
+    });
+    document.getElementById('plantillaPreview').textContent = text;
+  }
+}
+
+const textInput = document.getElementById('textInput');
+if (textInput) textInput.focus();
+
+// ── Respuestas rápidas: /atajo ────────────────────────────────────────────────
+(function () {
+  const input = document.getElementById('textInput');
+  if (!input) return;
+
+  // Create suggestion dropdown
+  const dropdown = document.createElement('div');
+  dropdown.id = 'rrDropdown';
+  dropdown.style.cssText = 'position:absolute;z-index:9999;background:var(--bg2);border:1px solid var(--border);border-radius:6px;min-width:280px;max-height:200px;overflow-y:auto;display:none;box-shadow:0 4px 12px rgba(0,0,0,.4);';
+  input.parentElement.style.position = 'relative';
+  input.parentElement.appendChild(dropdown);
+
+  let activeIdx = -1;
+
+  function close() { dropdown.style.display = 'none'; activeIdx = -1; }
+
+  function select(texto) {
+    // Replace from the / onwards with the text
+    const val = input.value;
+    const slashPos = val.lastIndexOf('/');
+    input.value = slashPos !== -1 ? val.slice(0, slashPos) + texto : texto;
+    close();
+    input.focus();
+  }
+
+  function highlightItem(items, idx) {
+    items.forEach((it, i) => it.classList.toggle('active', i === idx));
+    if (idx >= 0 && items[idx]) items[idx].scrollIntoView({block:'nearest'});
+  }
+
+  input.addEventListener('input', function () {
+    const val = this.value;
+    const slashPos = val.lastIndexOf('/');
+    if (slashPos === -1) { close(); return; }
+    const query = val.slice(slashPos + 1);
+    fetch(`{% url 'whatsapp:respuesta_rapida_buscar' %}?q=${encodeURIComponent(query)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.items || !data.items.length) { close(); return; }
+        dropdown.innerHTML = '';
+        data.items.forEach((item, i) => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding:7px 12px;cursor:pointer;font-size:.82rem;border-bottom:1px solid var(--border);';
+          div.innerHTML = `<code style="color:var(--blue)">/${item.atajo}</code> <span style="color:var(--text2)">${item.titulo}</span><div style="color:var(--text3);font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;">${item.texto}</div>`;
+          div.addEventListener('mousedown', e => { e.preventDefault(); select(item.texto); });
+          div.addEventListener('mouseover', () => { activeIdx = i; highlightItem(dropdown.children, i); });
+          dropdown.appendChild(div);
+        });
+        dropdown.style.display = '';
+        // position above input
+        const rect = input.getBoundingClientRect();
+        const pRect = input.parentElement.getBoundingClientRect();
+        dropdown.style.bottom = (input.parentElement.offsetHeight) + 'px';
+        dropdown.style.left = '0';
+        activeIdx = -1;
+      }).catch(close);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (dropdown.style.display === 'none') return;
+    const items = Array.from(dropdown.children);
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx+1, items.length-1); highlightItem(items, activeIdx); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx-1, 0); highlightItem(items, activeIdx); }
+    else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (activeIdx >= 0 && items[activeIdx]) { e.preventDefault(); items[activeIdx].dispatchEvent(new Event('mousedown')); }
+      else if (e.key === 'Tab') close();
+    }
+    else if (e.key === 'Escape') close();
+  });
+
+  document.addEventListener('click', e => { if (!dropdown.contains(e.target) && e.target !== input) close(); });
+})();
+
+function toggleBot(botType, currentlyActive) {
+  const newState = !currentlyActive;
+  const btnId = botType === 'crm' ? 'inboxToggleCrm' : 'inboxToggleN8n';
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = true;
+
+  const convPk = {{ selected_conv.pk|default:'0' }};
+  if (!convPk) return;
+
+  const fd = new FormData();
+  fd.append('bot_type', botType);
+  fd.append('activo', newState ? 'true' : 'false');
+
+  fetch(`/whatsapp/conversacion/${convPk}/bot-toggle/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''},
+    body: fd,
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      btn.className = btn.className.replace(/btn-(success|outline-secondary)/, newState ? 'btn-success' : 'btn-outline-secondary');
+      btn.onclick = () => toggleBot(botType, newState);
+    }
+  })
+  .catch(() => {})
+  .finally(() => { btn.disabled = false; });
+}
+</script>
+
+{% if selected_conv %}
+<script>
+// ── Media upload ──────────────────────────────────────────────────────────────
+const SEND_MEDIA_URL = "{% url 'whatsapp:send_media' %}";
+const MEDIA_CONV_PK  = "{{ selected_conv.pk }}";
+
+document.getElementById('mediaFileInput').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+
+  const bar      = document.getElementById('mediaUploadBar');
+  const nameEl   = document.getElementById('mediaUploadName');
+  const icon     = document.getElementById('attachIcon');
+  const label    = document.getElementById('attachLabel');
+
+  bar.style.display = '';
+  nameEl.textContent = file.name;
+  icon.className = 'bi bi-hourglass-split';
+  label.style.pointerEvents = 'none';
+
+  const fd = new FormData();
+  fd.append('media_file', file);
+  fd.append('conv_pk', MEDIA_CONV_PK);
+  fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+  const caption = document.getElementById('textInput').value.trim();
+  if (caption) fd.append('caption', caption);
+
+  fetch(SEND_MEDIA_URL, {method: 'POST', body: fd})
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        document.getElementById('textInput').value = '';
+        const chatArea = document.getElementById('chatContainer');
+        if (chatArea) {
+          // Use renderBubble for consistent rendering
+          renderBubble({
+            id: data.msg_id,
+            direccion: 'out',
+            tipo: data.mediatype,
+            contenido: data.caption || data.filename,
+            media_url: data.media_url,
+            media_mime: data.media_mime,
+            media_filename: data.filename,
+            status: 'sent',
+            timestamp: 'ahora',
+          });
+        }
+      } else {
+        alert('Error al enviar: ' + (data.error || 'desconocido'));
+      }
+    })
+    .catch(err => { alert('Error de red: ' + err); })
+    .finally(() => {
+      bar.style.display = 'none';
+      icon.className = 'bi bi-paperclip';
+      label.style.pointerEvents = '';
+      this.value = '';
+    });
+});
+</script>
+{% endif %}
+
+<!-- Modal: nueva conversación -->
+<div class="modal fade" id="nuevaConvModal" tabindex="-1" aria-labelledby="nuevaConvLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="post" action="{% url 'whatsapp:nueva_conversacion' %}">
+        {% csrf_token %}
+        <div class="modal-header py-2">
+          <h6 class="modal-title" id="nuevaConvLabel"><i class="bi bi-chat-dots me-1"></i> Nueva conversación</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Teléfono <span class="text-danger">*</span></label>
+            <input type="tel" name="telefono" class="form-control form-control-sm"
+                   placeholder="+5491112345678" required autofocus>
+            <div class="form-text">Formato internacional con código de país.</div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">Nombre (opcional)</label>
+            <input type="text" name="nombre" class="form-control form-control-sm" placeholder="Juan Pérez">
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-sm btn-success">
+            <i class="bi bi-chat-dots"></i> Abrir chat
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

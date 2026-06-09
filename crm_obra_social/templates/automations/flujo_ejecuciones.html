@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Ejecuciones — {{ flujo.nombre }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{% url 'automations:flujo_list' %}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="mb-0 fw-bold">Ejecuciones: {{ flujo.nombre }}</h4>
+  <a href="{% url 'automations:flujo_update' flujo.pk %}" class="btn btn-outline-primary btn-sm ms-auto">
+    <i class="bi bi-diagram-3"></i> Editar flujo
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small">
+        <thead>
+          <tr>
+            <th>Contacto</th>
+            <th>Estado</th>
+            <th>Nodo actual</th>
+            <th>Próxima ejecución</th>
+            <th>Iniciado</th>
+            <th>Log</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ej in ejecuciones %}
+          <tr>
+            <td>
+              {% if ej.contacto %}
+              <a href="{% url 'contactos:detail' ej.contacto.pk %}" class="text-decoration-none fw-semibold">
+                {{ ej.contacto.nombre_completo }}
+              </a>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              <span class="badge bg-{% if ej.status == 'completada' %}success{% elif ej.status == 'error' %}danger{% elif ej.status == 'pausada' %}warning text-dark{% else %}primary{% endif %}">
+                {{ ej.get_status_display }}
+              </span>
+            </td>
+            <td class="text-muted">{{ ej.nodo_actual|default:"—" }}</td>
+            <td class="text-muted">{{ ej.proxima_ejecucion|date:"d/m H:i"|default:"—" }}</td>
+            <td class="text-muted">{{ ej.created_at|date:"d/m/Y H:i" }}</td>
+            <td>
+              {% if ej.log %}
+              <button class="btn btn-xs btn-link p-0 small" type="button"
+                      onclick="this.nextSibling.classList.toggle('d-none')">
+                ver
+              </button>
+              <pre class="d-none small mt-1 p-2 bg-body-secondary rounded" style="font-size:.68rem;max-height:120px;overflow-y:auto;white-space:pre-wrap;">{{ ej.log }}</pre>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" class="text-center text-muted py-4">Sin ejecuciones todavía.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

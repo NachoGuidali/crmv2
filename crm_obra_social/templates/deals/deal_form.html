@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}{% if deal.pk %}Editar negociación{% else %}Nueva negociación{% endif %}{% endblock %}
+{% block nav_deals %}active{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="{% url 'deals:kanban' %}" class="text-muted text-decoration-none small"><i class="bi bi-chevron-left"></i> Negociaciones</a>
+  <h4 class="mt-1 fw-bold">{% if deal.pk %}Editar negociación{% else %}Nueva negociación{% endif %}</h4>
+</div>
+
+<form method="post" id="dealForm">
+  {% csrf_token %}
+  <div class="row g-4">
+    <div class="col-12 col-lg-7">
+
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">Datos principales</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Título *</label>
+            <input name="titulo" class="form-control" required
+              value="{% if deal.titulo %}{{ deal.titulo }}{% else %}{{ data.titulo }}{% endif %}"
+              placeholder="ej: Contrato Plan Familiar ACME">
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Pipeline *</label>
+              <select name="pipeline" class="form-select" id="pipelineSelect" required>
+                <option value="">— Seleccioná —</option>
+                {% for p in pipelines %}
+                <option value="{{ p.pk }}"
+                  {% if pipeline and pipeline.pk == p.pk %}selected
+                  {% elif deal.pipeline_id == p.pk %}selected
+                  {% elif data.pipeline == p.pk|stringformat:"s" %}selected
+                  {% endif %}>
+                  {{ p.nombre }}{% if not p.activo %} (inactivo){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Etapa *</label>
+              <select name="stage" class="form-select" id="stageSelect" required>
+                <option value="">— Primero elegí pipeline —</option>
+              </select>
+            </div>
+          </div>
+          <div class="row g-3 mt-1">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Valor estimado ($)</label>
+              <input type="number" name="valor" class="form-control" step="0.01" min="0"
+                value="{% if deal.valor %}{{ deal.valor }}{% else %}{{ data.valor }}{% endif %}" placeholder="0.00">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Fecha de cierre estimada</label>
+              <input type="date" name="fecha_cierre_estimada" class="form-control"
+                value="{{ deal.fecha_cierre_estimada|date:'Y-m-d'|default:'' }}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">Contacto</div>
+        <div class="card-body">
+          <div class="mb-3 position-relative">
+            <label class="form-label fw-semibold">Buscar contacto</label>
+            <input type="text" id="contactSearch" class="form-control" autocomplete="off"
+              placeholder="Escribí nombre, teléfono o DNI…"
+              value="{% if contacto %}{{ contacto.nombre_completo }}{% elif deal.contacto %}{{ deal.contacto.nombre_completo }}{% endif %}">
+            <input type="hidden" name="contacto_id" id="contactoId" value="{% if contacto %}{{ contacto.pk }}{% elif deal.contacto_id %}{{ deal.contacto_id }}{% endif %}">
+            <div id="contactResults" class="list-group shadow-sm"
+                 style="display:none;position:absolute;z-index:99;width:100%;max-height:220px;overflow-y:auto;top:100%"></div>
+          </div>
+          <div>
+            <label class="form-label fw-semibold">Nombre libre (si no hay contacto vinculado)</label>
+            <input name="nombre_contacto" class="form-control"
+              value="{% if deal.nombre_contacto %}{{ deal.nombre_contacto }}{% else %}{{ data.nombre_contacto }}{% endif %}"
+              placeholder="Completar si no hay contacto asociado">
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">Notas</div>
+        <div class="card-body">
+          <textarea name="descripcion" class="form-control" rows="4"
+            placeholder="Detalles de la negociación…">{% if deal.descripcion %}{{ deal.descripcion }}{% else %}{{ data.descripcion }}{% endif %}</textarea>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-12 col-lg-5">
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">Agente responsable</div>
+        <div class="card-body">
+          <select name="agente" class="form-select">
+            <option value="">Sin asignar</option>
+            {% for u in agentes %}
+            <option value="{{ u.pk }}"
+              {% if deal.agente_id == u.pk %}selected
+              {% elif data.agente == u.pk|stringformat:"s" %}selected
+              {% endif %}>{{ u.get_full_name|default:u.username }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mb-4">
+    <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+    <a href="{% url 'deals:kanban' %}" class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Stage select via AJAX ──────────────────────────────────────────────
+const pipelineSel  = document.getElementById('pipelineSelect');
+const stageSel     = document.getElementById('stageSelect');
+const CURRENT_STAGE = "{{ deal.stage_id|default:'' }}";
+
+async function loadStages(pipelineId) {
+  stageSel.innerHTML = '<option value="">Cargando…</option>';
+  if (!pipelineId) {
+    stageSel.innerHTML = '<option value="">— Primero elegí pipeline —</option>';
+    return;
+  }
+  try {
+    const res  = await fetch(`/negociaciones/api/stages/${pipelineId}/`);
+    const data = await res.json();
+    stageSel.innerHTML = '<option value="">— Seleccioná etapa —</option>';
+    data.stages.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.nombre;
+      if (String(s.id) === String(CURRENT_STAGE)) opt.selected = true;
+      stageSel.appendChild(opt);
+    });
+    if (!data.stages.length) {
+      stageSel.innerHTML = '<option value="">Sin etapas — editá el pipeline primero</option>';
+    }
+  } catch(e) {
+    stageSel.innerHTML = '<option value="">Error al cargar etapas</option>';
+  }
+}
+
+pipelineSel.addEventListener('change', () => loadStages(pipelineSel.value));
+if (pipelineSel.value) loadStages(pipelineSel.value);
+
+// ── Contact search (Contacto unificado) ───────────────────────────────
+let searchTimer;
+const contactInput   = document.getElementById('contactSearch');
+const contactoIdInput = document.getElementById('contactoId');
+const resultsBox     = document.getElementById('contactResults');
+
+contactInput.addEventListener('input', function() {
+  clearTimeout(searchTimer);
+  const q = this.value.trim();
+  if (q.length < 2) { resultsBox.style.display = 'none'; return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      const res  = await fetch(`/negociaciones/api/contactos/?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      resultsBox.innerHTML = '';
+      (data.results || []).forEach(item => {
+        const a = document.createElement('a');
+        a.className = 'list-group-item list-group-item-action small py-2';
+        a.href = '#';
+        a.innerHTML = `<span class="badge bg-${item.tipo_color} me-1">${item.tipo_nombre}</span> <strong>${item.nombre}</strong> <span class="text-muted">${item.telefono}</span>`;
+        a.addEventListener('click', e => {
+          e.preventDefault();
+          contactInput.value = item.nombre;
+          document.querySelector('[name=nombre_contacto]').value = item.nombre;
+          contactoIdInput.value = item.id;
+          resultsBox.style.display = 'none';
+        });
+        resultsBox.appendChild(a);
+      });
+      resultsBox.style.display = resultsBox.children.length ? 'block' : 'none';
+    } catch(e) { resultsBox.style.display = 'none'; }
+  }, 300);
+});
+
+// Clear contact link when user manually clears the search input
+contactInput.addEventListener('change', function() {
+  if (!this.value.trim()) {
+    contactoIdInput.value = '';
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#contactSearch') && !e.target.closest('#contactResults'))
+    resultsBox.style.display = 'none';
+});
+</script>
+{% endblock %}

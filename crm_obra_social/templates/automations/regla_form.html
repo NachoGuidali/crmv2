@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+{% block title %}{% if instance.pk %}Editar regla{% else %}Nueva regla{% endif %}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="{% url 'automations:list' %}" class="text-muted text-decoration-none small"><i class="bi bi-chevron-left"></i> Automatizaciones</a>
+  <h4 class="mt-1 fw-bold">{% if instance.pk %}Editar regla{% else %}Nueva regla de automatización{% endif %}</h4>
+</div>
+
+<form method="post" id="reglaForm">
+  {% csrf_token %}
+  <div class="row g-4">
+    <div class="col-12 col-lg-8">
+
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">General</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Nombre *</label>
+            <input name="nombre" class="form-control" value="{{ instance.nombre|default:'' }}" required placeholder="ej: Bienvenida al cambiar a interesado">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Descripción</label>
+            <textarea name="descripcion" class="form-control" rows="2" placeholder="Qué hace esta regla...">{{ instance.descripcion|default:'' }}</textarea>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label fw-semibold">Aplica a</label>
+              <select name="tipo_contacto" class="form-select">
+                <option value="">Todos los tipos de contacto</option>
+                {% for t in tipos_contacto %}
+                <option value="{{ t.pk }}" {% if instance.tipo_contacto_id == t.pk %}selected{% endif %}>{{ t.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-auto">
+              <label class="form-label fw-semibold">Orden</label>
+              <input type="number" name="orden" class="form-control" style="width:90px" value="{{ instance.orden|default:'0' }}" min="0">
+            </div>
+            <div class="col-auto d-flex align-items-end pb-1">
+              <div class="form-check">
+                <input type="checkbox" name="activa" class="form-check-input" id="activaCheck"
+                  {% if instance.pk and instance.activa or not instance.pk %}checked{% endif %}>
+                <label class="form-check-label" for="activaCheck">Activa</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <input type="hidden" name="modo" id="modoInput" value="{{ instance.modo|default:'automatizacion' }}">
+      <div class="btn-group mb-4" role="group" aria-label="Tipo de regla">
+        <button type="button" class="btn modo-tab" data-modo="automatizacion">⚡ Automatización</button>
+        <button type="button" class="btn modo-tab" data-modo="disparador">🎯 Disparador</button>
+      </div>
+
+      <!-- ═══ Paso 1 · Automatización: tiempo de ejecución ═══ -->
+      <div id="panel-automatizacion" class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold"><span class="badge bg-secondary me-1">1</span> Tiempo de ejecución</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <select name="tiempo_tipo" id="tiempoTipo" class="form-select" style="max-width:340px">
+              {% for val, label in tiempo_choices %}
+              <option value="{{ val }}" {% if instance.tiempo_tipo == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="tiempo-delay-panel" class="d-flex align-items-end gap-2 flex-wrap">
+            <input type="number" name="tiempo_cantidad" class="form-control" style="width:90px" min="1" value="{{ instance.tiempo_cantidad|default:'1' }}">
+            <select name="tiempo_unidad" class="form-select" style="width:130px">
+              {% for val, label in unidad_choices %}
+              <option value="{{ val }}" {% if instance.tiempo_unidad == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <span class="text-muted small pb-2">después de creado el contacto</span>
+          </div>
+
+          <div id="tiempo-date-panel" class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small">Cuando este campo de fecha…</label>
+              <select name="tiempo_campo_fecha" class="form-select">
+                {% for val, label in campo_fecha_choices %}
+                <option value="{{ val }}" {% if instance.tiempo_campo_fecha == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">…se cumpla, con un offset de (días; negativo = antes, positivo = después)</label>
+              <input type="number" name="tiempo_offset_dias" class="form-control" style="width:120px" value="{{ instance.tiempo_offset_dias|default:'0' }}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Paso 1 · Disparador: evento que dispara ═══ -->
+      <div id="panel-disparador" class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold"><span class="badge bg-secondary me-1">1</span> Evento que dispara</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <select name="evento_tipo" id="eventoTipo" class="form-select" style="max-width:340px">
+              {% for val, label in evento_choices %}
+              <option value="{{ val }}" {% if instance.evento_tipo == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="evento-campo-panel" class="mb-3">
+            <label class="form-label small">Campo</label>
+            <select name="evento_campo" class="form-select" style="max-width:300px">
+              {% for val, label in campo_choices %}
+              <option value="{{ val }}" {% if instance.evento_campo == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="evento-valor-panel" class="d-flex align-items-end gap-2 flex-wrap mb-3">
+            <div>
+              <label class="form-label small">Operador</label>
+              <select name="evento_operador" class="form-select" style="width:200px">
+                {% for val, label in operador_choices %}
+                <option value="{{ val }}" {% if instance.evento_operador == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label class="form-label small">Valor</label>
+              <input type="text" name="evento_valor" class="form-control" style="width:200px" value="{{ instance.evento_valor|default:'' }}" placeholder="valor...">
+            </div>
+          </div>
+
+          <div id="evento-stage-panel" class="d-flex align-items-end gap-2 flex-wrap">
+            <div>
+              <label class="form-label small">Desde la etapa</label>
+              <select name="evento_stage_desde" class="form-select" style="width:230px">
+                <option value="">Cualquiera</option>
+                {% for s in stages %}
+                <option value="{{ s.pk }}" {% if instance.evento_stage_desde_id == s.pk %}selected{% endif %}>{{ s.pipeline.nombre }} — {{ s.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="pb-2 text-muted"><i class="bi bi-arrow-right"></i></div>
+            <div>
+              <label class="form-label small">Hacia la etapa</label>
+              <select name="evento_stage_hasta" class="form-select" style="width:230px">
+                <option value="">Cualquiera</option>
+                {% for s in stages %}
+                <option value="{{ s.pk }}" {% if instance.evento_stage_hasta_id == s.pk %}selected{% endif %}>{{ s.pipeline.nombre }} — {{ s.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div id="evento-webhook-panel" class="alert alert-info small mb-0">
+            <i class="bi bi-info-circle"></i> Este disparador reacciona cuando el sistema recibe un POST a la URL de integración del webhook configurada para esta cuenta.
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Paso 2 · Condiciones ═══ -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">
+          <span class="badge bg-secondary me-1">2</span> Condiciones
+          <span class="text-muted fw-normal small">(opcional — si no agregás ninguna, la regla siempre se evalúa)</span>
+        </div>
+        <div class="card-body">
+          <div id="condicionesContainer"></div>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" id="addCondicionBtn">
+            <i class="bi bi-plus-lg"></i> Agregar condición
+          </button>
+          <input type="hidden" name="condiciones" id="condicionesInput">
+        </div>
+      </div>
+
+      <!-- ═══ Paso 3 · Acción ═══ -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold"><span class="badge bg-secondary me-1">3</span> Acción a ejecutar</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <select name="accion_tipo" id="accionTipo" class="form-select" style="max-width:380px">
+              {% for val, label in accion_choices %}
+              <option value="{{ val }}" {% if instance.accion_tipo == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="accion-field" class="accion-panel">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label small">Campo a cambiar</label>
+                <input type="text" name="accion_campo" class="form-control" value="{{ instance.accion_campo|default:'' }}" placeholder="prioridad, origen, o slug de un campo personalizado">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small">Nuevo valor</label>
+                <input type="text" name="accion_valor" class="form-control" value="{{ instance.accion_valor|default:'' }}" placeholder="nuevo valor...">
+              </div>
+            </div>
+          </div>
+
+          <div id="accion-stage" class="accion-panel">
+            <label class="form-label small">Mover a la etapa</label>
+            <select name="accion_stage" class="form-select" style="max-width:340px">
+              <option value="">— Seleccioná una etapa —</option>
+              {% for s in stages %}
+              <option value="{{ s.pk }}" {% if instance.accion_stage_id == s.pk %}selected{% endif %}>{{ s.pipeline.nombre }} — {{ s.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="accion-assign" class="accion-panel">
+            <label class="form-label small">Asignar al agente</label>
+            <select name="accion_agente" class="form-select" style="max-width:340px">
+              <option value="">— Seleccioná un agente —</option>
+              {% for u in agentes %}
+              <option value="{{ u.pk }}" {% if instance.accion_agente_id == u.pk %}selected{% endif %}>{{ u.get_full_name|default:u.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="accion-plantilla_wa" class="accion-panel">
+            <label class="form-label small">Plantilla a enviar</label>
+            <select name="accion_plantilla" class="form-select" style="max-width:340px">
+              <option value="">— Seleccioná una plantilla —</option>
+              {% for p in plantillas %}
+              <option value="{{ p.pk }}" {% if instance.accion_plantilla_id == p.pk %}selected{% endif %}>{{ p.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div id="accion-mensaje_wa" class="accion-panel">
+            <label class="form-label small">Texto del mensaje</label>
+            <textarea name="accion_mensaje_texto" class="form-control" rows="3" placeholder="Hola {nombre}, te contactamos porque...">{{ instance.accion_mensaje_texto|default:'' }}</textarea>
+            <div class="form-text">Variables: <code>{nombre}</code>, <code>{etapa}</code>, <code>{telefono}</code>.</div>
+          </div>
+
+          <div id="accion-tarea" class="accion-panel">
+            <div class="mb-2">
+              <label class="form-label small">Descripción de la tarea</label>
+              <input name="accion_tarea_descripcion" class="form-control" value="{{ instance.accion_tarea_descripcion|default:'' }}" placeholder="ej: Llamar a {nombre} para seguimiento">
+              <div class="form-text">Usá <code>{nombre}</code> para incluir el nombre del contacto.</div>
+            </div>
+            <div>
+              <label class="form-label small">Plazo (días desde hoy)</label>
+              <input type="number" name="accion_tarea_dias_plazo" class="form-control" style="width:110px" min="1" value="{{ instance.accion_tarea_dias_plazo|default:'1' }}">
+            </div>
+          </div>
+
+          <div id="accion-webhook" class="accion-panel">
+            <label class="form-label small">URL del webhook</label>
+            <input type="url" name="accion_webhook_url" class="form-control" value="{{ instance.accion_webhook_url|default:'' }}" placeholder="https://n8n.example.com/webhook/...">
+            <div class="form-text">Se enviará un POST JSON con los datos del contacto.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+        <a href="{% url 'automations:list' %}" class="btn btn-outline-secondary">Cancelar</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// --- Tabs (modo) ---
+const modoInput = document.getElementById('modoInput');
+const modoTabs = document.querySelectorAll('.modo-tab');
+function setModo(modo) {
+  modoInput.value = modo;
+  modoTabs.forEach(btn => {
+    const active = btn.dataset.modo === modo;
+    btn.classList.toggle('btn-primary', active);
+    btn.classList.toggle('btn-outline-primary', !active);
+  });
+  document.getElementById('panel-automatizacion').style.display = modo === 'automatizacion' ? '' : 'none';
+  document.getElementById('panel-disparador').style.display = modo === 'disparador' ? '' : 'none';
+}
+modoTabs.forEach(btn => btn.addEventListener('click', () => setModo(btn.dataset.modo)));
+setModo(modoInput.value || 'automatizacion');
+
+// --- Paso 1 · Automatización: tiempo de ejecución ---
+function updateTiempoPanels() {
+  const v = document.getElementById('tiempoTipo').value;
+  document.getElementById('tiempo-delay-panel').style.display = v === 'delay' ? '' : 'none';
+  document.getElementById('tiempo-date-panel').style.display = v === 'date' ? '' : 'none';
+}
+document.getElementById('tiempoTipo').addEventListener('change', updateTiempoPanels);
+updateTiempoPanels();
+
+// --- Paso 1 · Disparador: evento que dispara ---
+function updateEventoPanels() {
+  const v = document.getElementById('eventoTipo').value;
+  document.getElementById('evento-campo-panel').style.display = (v === 'field_change' || v === 'field_equals') ? '' : 'none';
+  document.getElementById('evento-valor-panel').style.display = (v === 'field_equals') ? '' : 'none';
+  document.getElementById('evento-stage-panel').style.display = (v === 'stage_change') ? '' : 'none';
+  document.getElementById('evento-webhook-panel').style.display = (v === 'webhook') ? '' : 'none';
+}
+document.getElementById('eventoTipo').addEventListener('change', updateEventoPanels);
+updateEventoPanels();
+
+// --- Paso 3 · Acción ---
+const accionPanels = {
+  'field':        'accion-field',
+  'stage':        'accion-stage',
+  'assign':       'accion-assign',
+  'plantilla_wa': 'accion-plantilla_wa',
+  'mensaje_wa':   'accion-mensaje_wa',
+  'tarea':        'accion-tarea',
+  'webhook':      'accion-webhook',
+};
+function updateAccionPanels() {
+  const v = document.getElementById('accionTipo').value;
+  document.querySelectorAll('.accion-panel').forEach(p => p.style.display = 'none');
+  const target = accionPanels[v];
+  if (target) document.getElementById(target).style.display = '';
+}
+document.getElementById('accionTipo').addEventListener('change', updateAccionPanels);
+updateAccionPanels();
+
+// --- Paso 2 · Condiciones (bloques encadenables Y/O) ---
+const CAMPO_OPTS = [
+  {% for val, label in campo_choices %}{% if val %}{value: "{{ val }}", label: "{{ label|escapejs }}"},{% endif %}{% endfor %}
+];
+const OPERADOR_OPTS = [
+  {% for val, label in operador_choices %}{value: "{{ val }}", label: "{{ label|escapejs }}"},{% endfor %}
+];
+
+let condiciones = [];
+try { condiciones = JSON.parse('{{ condiciones_json|escapejs }}'); } catch (e) { condiciones = []; }
+if (!Array.isArray(condiciones)) condiciones = [];
+
+const condContainer = document.getElementById('condicionesContainer');
+
+function syncCondicionesFromDOM() {
+  return Array.from(condContainer.querySelectorAll('.cond-block')).map(block => ({
+    campo: block.querySelector('.cond-campo').value,
+    operador: block.querySelector('.cond-operador').value,
+    valor: block.querySelector('.cond-valor').value,
+    conector: block.dataset.conector || 'Y',
+  }));
+}
+
+function renderCondiciones() {
+  condContainer.innerHTML = '';
+  if (!condiciones.length) {
+    condContainer.innerHTML = '<p class="text-muted small mb-2">Sin condiciones — esta regla se evalúa siempre.</p>';
+  }
+  condiciones.forEach((cond, idx) => {
+    if (idx > 0) {
+      const conector = condiciones[idx - 1].conector || 'Y';
+      const join = document.createElement('div');
+      join.className = 'mb-2';
+      join.innerHTML = `<span class="badge cond-join-badge ${conector === 'Y' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-info-subtle text-info-emphasis'}" data-idx="${idx - 1}" style="cursor:pointer" title="Click para alternar Y / O">${conector}</span>`;
+      condContainer.appendChild(join);
+    }
+
+    const block = document.createElement('div');
+    block.className = 'cond-block border rounded-3 p-2 mb-2 d-flex gap-2 align-items-center flex-wrap';
+    block.dataset.conector = cond.conector || 'Y';
+
+    const campoSel = document.createElement('select');
+    campoSel.className = 'form-select form-select-sm cond-campo';
+    campoSel.style.maxWidth = '180px';
+    CAMPO_OPTS.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label;
+      if (o.value === cond.campo) opt.selected = true;
+      campoSel.appendChild(opt);
+    });
+
+    const opSel = document.createElement('select');
+    opSel.className = 'form-select form-select-sm cond-operador';
+    opSel.style.maxWidth = '170px';
+    OPERADOR_OPTS.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label;
+      if (o.value === cond.operador) opt.selected = true;
+      opSel.appendChild(opt);
+    });
+
+    const valInput = document.createElement('input');
+    valInput.type = 'text';
+    valInput.className = 'form-control form-control-sm cond-valor';
+    valInput.style.maxWidth = '180px';
+    valInput.placeholder = 'valor...';
+    valInput.value = cond.valor || '';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-sm btn-outline-danger';
+    removeBtn.title = 'Quitar condición';
+    removeBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+    removeBtn.addEventListener('click', () => {
+      condiciones = syncCondicionesFromDOM();
+      condiciones.splice(idx, 1);
+      renderCondiciones();
+    });
+
+    block.append(campoSel, opSel, valInput, removeBtn);
+    condContainer.appendChild(block);
+  });
+
+  condContainer.querySelectorAll('.cond-join-badge').forEach(badge => {
+    badge.addEventListener('click', () => {
+      condiciones = syncCondicionesFromDOM();
+      const i = parseInt(badge.dataset.idx, 10);
+      condiciones[i].conector = condiciones[i].conector === 'Y' ? 'O' : 'Y';
+      renderCondiciones();
+    });
+  });
+}
+
+document.getElementById('addCondicionBtn').addEventListener('click', () => {
+  condiciones = syncCondicionesFromDOM();
+  condiciones.push({campo: CAMPO_OPTS.length ? CAMPO_OPTS[0].value : '', operador: 'eq', valor: '', conector: 'Y'});
+  renderCondiciones();
+});
+
+renderCondiciones();
+
+document.getElementById('reglaForm').addEventListener('submit', () => {
+  document.getElementById('condicionesInput').value = JSON.stringify(syncCondicionesFromDOM());
+});
+</script>
+{% endblock %}

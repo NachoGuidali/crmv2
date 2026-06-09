@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{% if rr %}Editar{% else %}Nueva{% endif %} respuesta rápida{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-12 col-md-7">
+
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{% url 'whatsapp:respuestas_rapidas' %}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="mb-0 fw-bold">
+    {% if rr %}Editar respuesta rápida{% else %}Nueva respuesta rápida{% endif %}
+  </h4>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Título <span class="text-muted fw-normal">(descriptivo, no visible al cliente)</span></label>
+        <input type="text" name="titulo" value="{{ rr.titulo|default:post.titulo|default:'' }}"
+               class="form-control" required maxlength="100" placeholder="Ej: Saludo inicial">
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Atajo <span class="text-muted fw-normal">(se activa escribiendo /atajo)</span></label>
+        <div class="input-group">
+          <span class="input-group-text">/</span>
+          <input type="text" name="atajo" value="{{ rr.atajo|default:post.atajo|default:'' }}"
+                 class="form-control" required maxlength="30"
+                 pattern="[a-zA-Z0-9_-]+" title="Solo letras, números, guiones y guiones bajos"
+                 placeholder="saludo">
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Texto del mensaje</label>
+        <textarea name="texto" class="form-control" rows="5" required
+                  placeholder="Hola {nombre}, ¿en qué te puedo ayudar hoy?">{{ rr.texto|default:post.texto|default:'' }}</textarea>
+        <div class="form-text">Podés usar <code>{nombre}</code> como variable del nombre del contacto.</div>
+      </div>
+      <div class="mb-3 form-check">
+        <input type="checkbox" name="activa" id="activa" class="form-check-input"
+               {% if rr.activa or not rr %}checked{% endif %}>
+        <label for="activa" class="form-check-label">Activa (visible para todos los agentes)</label>
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-check-lg me-1"></i> {% if rr %}Guardar cambios{% else %}Crear respuesta{% endif %}
+        </button>
+        <a href="{% url 'whatsapp:respuestas_rapidas' %}" class="btn btn-outline-secondary">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+</div>
+</div>
+{% endblock %}

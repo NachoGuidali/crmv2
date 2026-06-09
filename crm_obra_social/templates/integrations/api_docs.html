@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Documentación API{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <a href="{% url 'integrations:list' %}" class="text-muted text-decoration-none small"><i class="bi bi-chevron-left"></i> Integraciones</a>
+  <h4 class="mt-1 fw-bold font-head"><i class="bi bi-book"></i> Documentación de la API</h4>
+</div>
+
+<div class="row g-4">
+<div class="col-12 col-lg-9">
+
+  <!-- AUTH -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header">Autenticación</div>
+    <div class="card-body">
+      <p class="small">Todas las solicitudes deben incluir el header <code>X-API-Key</code>:</p>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">X-API-Key: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</pre>
+      <p class="small mb-0" style="color:var(--text3)">También se acepta como parámetro GET: <code>?api_key=...</code></p>
+    </div>
+  </div>
+
+  <!-- VARIABLES DE PLANTILLA -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header" style="color:var(--violet)"><i class="bi bi-file-text me-1"></i> Variables disponibles en plantillas</div>
+    <div class="card-body">
+      <p class="small" style="color:var(--text2)">
+        Al crear una plantilla, el cuerpo usa <code>{% verbatim %}{{1}}{{2}}...{% endverbatim %}</code> como marcadores de posición.
+        Al configurar una campaña, mapeás cada posición a un campo del contacto usando estos nombres:
+      </p>
+      <table class="table table-sm small mb-3">
+        <thead>
+          <tr><th>Nombre de variable</th><th>Qué trae</th><th>Aplica a</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>nombre_completo</code></td><td>Nombre completo del contacto</td><td>Todos los tipos</td></tr>
+          <tr><td><code>email</code></td><td>Email</td><td>Todos los tipos</td></tr>
+          <tr><td><code>plan</code></td><td>Plan de interés / contratado</td><td>Todos los tipos</td></tr>
+          <tr><td><code>localidad</code></td><td>Localidad</td><td>Todos los tipos</td></tr>
+          <tr><td><code>provincia</code></td><td>Provincia</td><td>Todos los tipos</td></tr>
+          <tr><td><code>telefono</code></td><td>Teléfono (formato +54...)</td><td>Todos los tipos</td></tr>
+        </tbody>
+      </table>
+      <p class="small" style="color:var(--text2)"><strong>Campos personalizados</strong> (<code>datos_extra</code>): en la campaña elegís tipo <em>"Campo extra"</em> y escribís el slug del campo (el nombre en minúsculas, sin espacios, ej: <code>empresa</code>, <code>cobertura_solicitada</code>).</p>
+      <p class="small mb-0" style="color:var(--text2)"><strong>Valor fijo</strong>: texto que va igual para todos (ej: nombre de la empresa, fecha de un evento).</p>
+    </div>
+  </div>
+
+  <!-- POST /leads/ -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header">
+      <span class="tag tag-green me-2">POST</span>
+      <code>{{ base_url }}/api/v1/leads/</code>
+      — Crear / actualizar contacto
+    </div>
+    <div class="card-body">
+      <p class="small">Crea un contacto nuevo. Si el teléfono ya existe, actualiza los datos vacíos.</p>
+      <h6 class="fw-semibold small">Request (JSON)</h6>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">{
+  "nombre_completo": "Juan Pérez",        <span style="color:var(--amber)">// requerido</span>
+  "telefono": "1123456789",               <span style="color:var(--amber)">// requerido</span>
+  "codigo_pais": "54",                    <span style="color:var(--text3)">// opcional, default: 54</span>
+  "email": "juan@example.com",
+  "dni": "35123456",
+  "localidad": "Buenos Aires",
+  "provincia": "Buenos Aires",
+  "plan": "Individual",                   <span style="color:var(--text3)">// nombre exacto del plan</span>
+  "notas": "Interesado por Google Ads",
+  "origen": "web",                        <span style="color:var(--text3)">// web|campaña|referido|llamada|whatsapp</span>
+  "datos_extra": { "utm_source": "google" }
+}</pre>
+      <h6 class="fw-semibold small mt-3">Respuestas</h6>
+      <table class="table table-sm small mb-0">
+        <tr><td><span class="tag tag-green">201</span></td><td><code>{"status":"created","contacto_id":42,"telefono":"+541123456789"}</code></td></tr>
+        <tr><td><span class="tag tag-blue">200</span></td><td><code>{"status":"updated","contacto_id":42,"telefono":"+541123456789"}</code></td></tr>
+        <tr><td><span class="tag tag-amber">422</span></td><td><code>{"error":"Teléfono inválido","code":"validation_error"}</code></td></tr>
+        <tr><td><span class="tag tag-red">401</span></td><td><code>{"error":"API key inválida","code":"unauthorized"}</code></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- POST /leads/actualizar/ -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header" style="color:var(--cyan)">
+      <span class="tag tag-cyan me-2">POST</span>
+      <code>{{ base_url }}/api/v1/leads/actualizar/</code>
+      — Actualizar campos de un contacto existente
+    </div>
+    <div class="card-body">
+      <p class="small">Busca el contacto por teléfono y actualiza los campos que enviés. <strong>Diseñado para n8n y bots conversacionales.</strong></p>
+      <p class="small" style="color:var(--text2)">Cualquier campo no reconocido se guarda automáticamente en <code>datos_extra</code>.</p>
+      <h6 class="fw-semibold small">Request (JSON)</h6>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">{
+  "telefono": "+541123456789",            <span style="color:var(--amber)">// requerido — identifica al lead</span>
+
+  <span style="color:var(--text3)">// Campos estándar (todos opcionales, solo se actualizan los que enviés):</span>
+  "nombre_completo": "Juan Pérez",
+  "email": "juan@example.com",
+  "dni": "35123456",
+  "localidad": "Buenos Aires",
+  "provincia": "Buenos Aires",
+  "notas": "Tiene 3 hijos",
+  "plan": "Familiar",                     <span style="color:var(--text3)">// nombre del plan</span>
+  "etapa": "Interesado",                  <span style="color:var(--text3)">// nombre exacto de una etapa del pipeline del contacto</span>
+  "prioridad": "alta",                    <span style="color:var(--text3)">// alta|media|baja</span>
+
+  <span style="color:var(--text3)">// Campos extra (se mezclan con datos_extra existentes):</span>
+  "datos_extra": { "empresa": "Acme SA" },
+
+  <span style="color:var(--text3)">// También podés enviar campos extra directamente (van a datos_extra):</span>
+  "cobertura_solicitada": "completa",
+  "cantidad_hijos": "2"
+}</pre>
+      <h6 class="fw-semibold small mt-3">Respuestas</h6>
+      <table class="table table-sm small mb-0">
+        <tr><td><span class="tag tag-blue">200</span></td><td><code>{"status":"updated","contacto_id":42,"telefono":"...","campos_actualizados":["email","datos_extra"]}</code></td></tr>
+        <tr><td><span class="tag tag-red">404</span></td><td><code>{"error":"contacto_not_found","telefono":"..."}</code></td></tr>
+        <tr><td><span class="tag tag-red">401</span></td><td><code>{"error":"unauthorized"}</code></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- GET /leads/<pk>/ -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header">
+      <span class="tag tag-blue me-2">GET</span>
+      <code>{{ base_url }}/api/v1/leads/{id}/</code>
+      — Consultar contacto por ID
+    </div>
+    <div class="card-body">
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">{
+  "contacto_id": 42,
+  "nombre_completo": "Juan Pérez",
+  "telefono": "+541123456789",
+  "pipeline": "Pipeline de leads",
+  "etapa": "Interesado",
+  "prioridad": "alta",
+  "agente": "María González",
+  "created_at": "2026-05-19T10:30:00-03:00",
+  "updated_at": "2026-05-19T14:22:00-03:00"
+}</pre>
+    </div>
+  </div>
+
+  <!-- WEBHOOK -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header">
+      <span class="tag tag-green me-2">POST</span>
+      <code>{{ base_url }}/api/v1/webhook/{source}/</code>
+      — Webhook genérico
+    </div>
+    <div class="card-body">
+      <p class="small">Igual que <code>POST /leads/</code> pero el origen se toma del parámetro <code>{source}</code> de la URL.</p>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">POST {{ base_url }}/api/v1/webhook/landing-google/
+<span style="color:var(--text3)"># Contacto creado con origen = landing-google en datos_extra</span></pre>
+    </div>
+  </div>
+
+  <!-- N8N GUIDE -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header" style="color:var(--violet)"><i class="bi bi-lightning-charge me-1"></i> Integración con n8n — flujo conversacional por WhatsApp</div>
+    <div class="card-body">
+      <p class="small" style="color:var(--text2)">Patrón recomendado para un bot de n8n que capta datos del contacto durante la conversación:</p>
+
+      <h6 class="fw-semibold small mt-3">1. Crear el lead cuando llega el primer mensaje</h6>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">POST {{ base_url }}/api/v1/leads/
+{
+  "nombre_completo": "{% verbatim %}{{$json.pushName}}{% endverbatim %}",     // nombre de WhatsApp
+  "telefono":        "{% verbatim %}{{$json.from}}{% endverbatim %}",          // número del remitente
+  "origen":          "whatsapp"
+}
+<span style="color:var(--text3)">// Respuesta: {"status":"created","contacto_id":123} o {"status":"updated",...}
+// Guardá contacto_id en la memoria del flujo n8n</span></pre>
+
+      <h6 class="fw-semibold small mt-3">2. El bot pregunta y el usuario responde — ir actualizando campos</h6>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">POST {{ base_url }}/api/v1/leads/actualizar/
+{
+  "telefono": "{% verbatim %}{{$json.from}}{% endverbatim %}",
+  "email":    "{% verbatim %}{{$json.respuesta_email}}{% endverbatim %}"
+}
+
+<span style="color:var(--text3)">// O para un campo personalizado:</span>
+POST {{ base_url }}/api/v1/leads/actualizar/
+{
+  "telefono":            "{% verbatim %}{{$json.from}}{% endverbatim %}",
+  "cobertura_solicitada":"{% verbatim %}{{$json.respuesta_cobertura}}{% endverbatim %}"
+}</pre>
+
+      <h6 class="fw-semibold small mt-3">3. Cambiar la etapa del contacto según avance el flujo</h6>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);">POST {{ base_url }}/api/v1/leads/actualizar/
+{
+  "telefono": "{% verbatim %}{{$json.from}}{% endverbatim %}",
+  "etapa":    "Interesado",
+  "prioridad": "alta"
+}</pre>
+
+      <h6 class="fw-semibold small mt-3">Etapas disponibles</h6>
+      <p class="small mb-2" style="color:var(--text2)">
+        Las etapas son configurables: cada <strong>tipo de contacto</strong> tiene su propio pipeline.
+        Enviá el <strong>nombre exacto</strong> de la etapa tal como está definida en
+        <em>Contactos → Tipos de contacto → Pipeline</em>; si no coincide ninguna etapa del pipeline
+        del contacto, el cambio se ignora silenciosamente (el resto de los campos sí se actualiza).
+      </p>
+
+      <h6 class="fw-semibold small mt-3">Número del remitente en Evolution API</h6>
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);"><span style="color:var(--text3)">// El webhook de Evolution API trae el número así:</span>
+"remoteJid": "5491112345678@s.whatsapp.net"
+
+<span style="color:var(--text3)">// Extraé el número con una función n8n:</span>
+{% verbatim %}{{$json.data.key.remoteJid.replace('@s.whatsapp.net','').replace('@c.us','')}}{% endverbatim %}
+<span style="color:var(--text3)">// Resultado: "5491112345678" — la API del CRM acepta con o sin "+"</span></pre>
+    </div>
+  </div>
+
+  <!-- CURL EXAMPLE -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header">Ejemplo completo con curl</div>
+    <div class="card-body">
+      <pre class="p-3 rounded small" style="background:var(--bg3);color:var(--text);"># 1. Crear lead
+curl -X POST {{ base_url }}/api/v1/leads/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: TU-API-KEY" \
+  -d '{"nombre_completo":"María García","telefono":"1145678901","origen":"whatsapp"}'
+
+# 2. Actualizar email cuando lo proporciona
+curl -X POST {{ base_url }}/api/v1/leads/actualizar/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: TU-API-KEY" \
+  -d '{"telefono":"+541145678901","email":"maria@gmail.com","etapa":"Interesado"}'
+
+# 3. Guardar campo personalizado
+curl -X POST {{ base_url }}/api/v1/leads/actualizar/ \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: TU-API-KEY" \
+  -d '{"telefono":"+541145678901","cobertura_solicitada":"Plan Familiar","cantidad_hijos":"2"}'</pre>
+    </div>
+  </div>
+
+</div>
+</div>
+{% endblock %}

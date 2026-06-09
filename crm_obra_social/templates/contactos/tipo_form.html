@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{% if tipo %}Editar tipo{% else %}Nuevo tipo{% endif %}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="{% url 'contactos:tipos' %}" class="text-muted text-decoration-none small"><i class="bi bi-chevron-left"></i> Tipos de contacto</a>
+  <h4 class="mt-1 fw-bold">{% if tipo %}Editar: {{ tipo.nombre }}{% else %}Nuevo tipo de contacto{% endif %}</h4>
+</div>
+
+<div class="card border-0 shadow-sm" style="max-width:640px;">
+  <div class="card-body">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">{{ form.nombre.label }} *</label>
+          {{ form.nombre }}
+          {% if form.nombre.errors %}<div class="invalid-feedback d-block">{{ form.nombre.errors.0 }}</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">{{ form.nombre_plural.label }}</label>
+          {{ form.nombre_plural }}
+          <div class="form-text">Si lo dejás vacío, se genera automáticamente (ej: "Lead" → "Leads").</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">{{ form.color.label }}</label>
+          {{ form.color }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">{{ form.icono.label }}</label>
+          {{ form.icono }}
+          <div class="form-text">{{ form.icono.help_text }}</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">{{ form.orden.label }}</label>
+          {{ form.orden }}
+          <div class="form-text">Número menor → aparece primero.</div>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label small fw-semibold">{{ form.pipeline.label }}</label>
+          {{ form.pipeline }}
+          {% if form.pipeline.errors %}<div class="invalid-feedback d-block">{{ form.pipeline.errors.0 }}</div>{% endif %}
+          <div class="form-text">Define las etapas por las que pasa un contacto de este tipo. Configurá pipelines y etapas desde el panel de administración.</div>
+        </div>
+        <div class="col-md-4 d-flex align-items-end pb-1">
+          <div class="form-check">
+            {{ form.activo }}
+            <label class="form-check-label small">{{ form.activo.label }}</label>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Guardar</button>
+        <a href="{% url 'contactos:tipos' %}" class="btn btn-outline-secondary">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

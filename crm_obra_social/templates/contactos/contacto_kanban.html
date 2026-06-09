@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Kanban — {{ tipo_actual.nombre_plural|default:"Contactos" }}{% endblock %}
+{% block nav_kanban %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+.kanban-wrapper { overflow-x: auto; padding-bottom: 8px; }
+.kanban-board { display: flex; gap: 12px; min-width: max-content; padding-bottom: 16px; align-items: flex-start; }
+.kanban-col { width: 240px; flex-shrink: 0; }
+.kanban-col-header {
+  font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  padding: 8px 12px; border-radius: 8px 8px 0 0;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg3); color: var(--text2);
+  border: 1px solid var(--border); border-bottom: none;
+}
+.kanban-col-header .col-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.kanban-col-header .col-badge {
+  margin-left: auto; font-size: 10px; background: var(--bg4);
+  color: var(--text3); padding: 1px 7px; border-radius: 10px; font-weight: 500;
+}
+.kanban-cards {
+  min-height: 200px;
+  background: #0a1020;
+  border-radius: 0 0 8px 8px;
+  padding: 8px;
+  display: flex; flex-direction: column; gap: 7px;
+  border: 1px solid var(--border); border-top: none;
+}
+.kanban-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 11px 13px;
+  cursor: grab;
+  border-left: 3px solid transparent;
+  font-size: .83rem;
+  transition: border-color .12s, box-shadow .12s, transform .12s;
+  color: var(--text);
+}
+.kanban-card:hover {
+  border-color: var(--border2);
+  box-shadow: 0 4px 16px rgba(0,0,0,.35);
+  transform: translateY(-1px);
+}
+.kanban-card:active { cursor: grabbing; }
+.kanban-card.dragging { opacity: .4; }
+.kanban-cards.drag-over { background: #0d1830; outline: 2px dashed var(--blue); outline-offset: -3px; }
+.kanban-card a { color: var(--text); text-decoration: none; }
+.kanban-card a:hover { color: var(--blue); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0 fw-bold"><i class="bi bi-kanban text-primary"></i> Pipeline — {{ tipo_actual.nombre_plural|default:"Contactos" }}</h4>
+  <div class="d-flex gap-2">
+    <a href="{% url 'contactos:list' %}{% if tipo_actual %}?tipo={{ tipo_actual.slug }}{% endif %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list"></i> Vista lista</a>
+    <a href="{% url 'contactos:create' %}{% if tipo_actual %}?tipo={{ tipo_actual.slug }}{% endif %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Nuevo contacto</a>
+  </div>
+</div>
+
+{% if tipos|length > 1 %}
+<ul class="nav nav-pills mb-3 flex-wrap gap-1">
+  {% for t in tipos %}
+  <li class="nav-item">
+    <a class="nav-link {% if tipo_actual.pk == t.pk %}active{% endif %}" href="?tipo={{ t.slug }}">
+      <i class="bi bi-{{ t.icono|default:'person' }}"></i> {{ t.nombre_plural }}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if not tipo_actual %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-kanban" style="font-size:2rem;"></i>
+    <p class="mt-2">No hay tipos de contacto con un pipeline configurado todavía.</p>
+    <a href="{% url 'contactos:tipos' %}" class="btn btn-primary btn-sm">Configurar tipos de contacto</a>
+  </div>
+</div>
+{% else %}
+<div class="kanban-wrapper">
+  <div class="kanban-board" id="kanbanBoard">
+    {% for stage_pk, col in columns.items %}
+    <div class="kanban-col">
+      <div class="kanban-col-header">
+        <span class="col-dot" style="background:var(--bs-{{ col.stage.color }}, #6366f1)"></span>
+        {{ col.stage.nombre }}
+        <span class="col-badge">{{ col.contactos|length }}</span>
+      </div>
+      <div class="kanban-cards" data-etapa="{{ stage_pk }}" id="col-{{ stage_pk }}">
+        {% for contacto in col.contactos %}
+        <div class="kanban-card" draggable="true" data-id="{{ contacto.pk }}" data-etapa="{{ contacto.stage_id }}">
+          <div class="fw-semibold">
+            <a href="{% url 'contactos:detail' contacto.pk %}">{{ contacto.nombre_completo }}</a>
+          </div>
+          <div class="text-muted" style="font-size:.78rem;">{{ contacto.telefono }}</div>
+          {% if contacto.plan_interes %}
+          <div class="text-muted" style="font-size:.78rem;">{{ contacto.plan_interes }}</div>
+          {% endif %}
+          <div class="mt-1">
+            <span class="badge bg-{{ contacto.get_prioridad_badge_class }}" style="font-size:.7rem;">{{ contacto.get_prioridad_display }}</span>
+            {% if contacto.agente %}
+            <span class="text-muted" style="font-size:.72rem;">{{ contacto.agente.display_name }}</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+let dragged = null;
+
+document.querySelectorAll('.kanban-card').forEach(card => {
+  card.addEventListener('dragstart', e => { dragged = card; card.classList.add('dragging'); });
+  card.addEventListener('dragend', () => card.classList.remove('dragging'));
+});
+
+document.querySelectorAll('.kanban-cards').forEach(col => {
+  col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drag-over'); });
+  col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+  col.addEventListener('drop', async e => {
+    e.preventDefault();
+    col.classList.remove('drag-over');
+    if (!dragged) return;
+    const nuevaEtapa = col.dataset.etapa;
+    const contactoId = dragged.dataset.id;
+    if (dragged.dataset.etapa === nuevaEtapa) return;
+
+    const res = await fetch(`/contactos/${contactoId}/mover/`, {
+      method: 'POST',
+      headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `etapa=${nuevaEtapa}`,
+    });
+    if (res.ok) {
+      dragged.dataset.etapa = nuevaEtapa;
+      col.appendChild(dragged);
+      refreshCounts();
+    }
+  });
+});
+
+function refreshCounts() {
+  document.querySelectorAll('.kanban-col').forEach(colWrap => {
+    const cards = colWrap.querySelector('.kanban-cards');
+    const badge = colWrap.querySelector('.col-badge');
+    if (cards && badge) badge.textContent = cards.children.length;
+  });
+}
+</script>
+{% endblock %}

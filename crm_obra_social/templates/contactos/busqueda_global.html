@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Búsqueda: {{ q }}{% endblock %}
+{% block nav_contactos %}active{% endblock %}
+
+{% block content %}
+<h4 class="mb-3">Resultados para <em>{{ q }}</em></h4>
+
+{% if not q or q|length < 2 %}
+<div class="alert alert-secondary">Ingresá al menos 2 caracteres para buscar.</div>
+{% elif resultados %}
+
+{# Contactos #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header fw-semibold bg-transparent">
+    <i class="bi bi-person-lines-fill me-1"></i> Contactos ({{ resultados.contactos|length }})
+  </div>
+  <div class="list-group list-group-flush">
+    {% for c in resultados.contactos %}
+    <a href="{{ c.get_absolute_url }}" class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-2">
+      <span class="badge bg-{{ c.tipo.color }}">{{ c.tipo.nombre }}</span>
+      <div>
+        <div class="fw-semibold">{{ c.nombre_completo }}</div>
+        <div class="small text-muted">
+          {{ c.telefono }}{% if c.email %} · {{ c.email }}{% endif %}{% if c.dni %} · DNI {{ c.dni }}{% endif %}
+          {% if c.stage %} · <span class="badge bg-secondary">{{ c.stage.nombre }}</span>{% endif %}
+        </div>
+      </div>
+    </a>
+    {% empty %}
+    <div class="list-group-item text-muted small">Sin resultados en contactos.</div>
+    {% endfor %}
+  </div>
+</div>
+
+{# Tareas #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header fw-semibold bg-transparent">
+    <i class="bi bi-check2-square me-1"></i> Tareas ({{ resultados.tareas|length }})
+  </div>
+  <div class="list-group list-group-flush">
+    {% for t in resultados.tareas %}
+    {% if t.contacto %}
+    <a href="{{ t.contacto.get_absolute_url }}" class="list-group-item list-group-item-action py-2">
+      <div class="fw-semibold small">{{ t.get_tipo_display }} — {{ t.contacto.nombre_completo }}</div>
+      <div class="small text-muted">{{ t.descripcion|truncatechars:100 }} · {{ t.fecha_programada|date:"d/m/Y H:i" }}</div>
+    </a>
+    {% endif %}
+    {% empty %}
+    <div class="list-group-item text-muted small">Sin resultados en tareas.</div>
+    {% endfor %}
+  </div>
+</div>
+
+{# Conversaciones WA #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header fw-semibold bg-transparent">
+    <i class="bi bi-whatsapp me-1"></i> Conversaciones WhatsApp ({{ resultados.convs|length }})
+  </div>
+  <div class="list-group list-group-flush">
+    {% for conv in resultados.convs %}
+    <a href="{% url 'whatsapp:inbox' %}?conv={{ conv.pk }}" class="list-group-item list-group-item-action py-2">
+      <div class="fw-semibold small">{{ conv.nombre_contacto|default:conv.numero }}</div>
+      <div class="small text-muted">{{ conv.telefono }}</div>
+    </a>
+    {% empty %}
+    <div class="list-group-item text-muted small">Sin resultados en conversaciones.</div>
+    {% endfor %}
+  </div>
+</div>
+
+{% else %}
+<p class="text-muted">Sin resultados para <em>{{ q }}</em>.</p>
+{% endif %}
+{% endblock %}

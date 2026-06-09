@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Etiquetas{% endblock %}
+{% block nav_contactos %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0 fw-bold"><i class="bi bi-bookmark-fill me-2"></i>Etiquetas</h4>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-md-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold bg-transparent">Nueva etiqueta</div>
+      <div class="card-body">
+        <form method="post" action="{% url 'contactos:etiquetas' %}">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Nombre</label>
+            <input type="text" name="nombre" class="form-control form-control-sm" required maxlength="50" placeholder="Ej: Interesado, VIP...">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Color</label>
+            <select name="color" class="form-select form-select-sm">
+              <option value="primary">Azul</option>
+              <option value="success">Verde</option>
+              <option value="danger">Rojo</option>
+              <option value="warning">Amarillo</option>
+              <option value="info">Celeste</option>
+              <option value="secondary">Gris</option>
+              <option value="dark">Negro</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm w-100">
+            <i class="bi bi-plus"></i> Crear etiqueta
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-md-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold bg-transparent">Etiquetas existentes</div>
+      <div class="card-body">
+        {% for et in etiquetas %}
+        <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-{{ et.color }} fs-6">{{ et.nombre }}</span>
+            <span class="text-muted small">{{ et.contactos.count }} contacto(s)</span>
+          </div>
+          <form method="post" action="{% url 'contactos:etiqueta_delete' et.pk %}"
+                onsubmit="return confirm('¿Eliminar la etiqueta «{{ et.nombre }}»?')">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger btn-sm py-0">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </div>
+        {% empty %}
+        <p class="text-muted small">Todavía no hay etiquetas. Creá la primera arriba.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

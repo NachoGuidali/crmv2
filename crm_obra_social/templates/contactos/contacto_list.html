@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% load crm_tags %}
+{% block title %}Contactos{% endblock %}
+{% block nav_contactos %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0 fw-bold">
+    <i class="bi bi-people text-primary"></i>
+    {{ tipo_actual.nombre_plural|default:"Contactos" }}
+    <span class="badge bg-secondary fs-6">{{ total_count }}</span>
+  </h4>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="{% url 'contactos:kanban' %}{% if tipo_actual %}?tipo={{ tipo_actual.slug }}{% endif %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-kanban"></i> Ver Kanban</a>
+    <a href="{% url 'contactos:create' %}{% if tipo_actual %}?tipo={{ tipo_actual.slug }}{% endif %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Nuevo contacto</a>
+    {% if request.user.can_see_all_leads %}
+    <a href="{% url 'contactos:csv_import' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload"></i> <span class="d-none d-sm-inline">Importar</span></a>
+    <a href="{% url 'contactos:csv_export' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> Exportar</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Tipo filter tabs -->
+{% if tipos %}
+<ul class="nav nav-pills mb-3 flex-wrap gap-1">
+  <li class="nav-item">
+    <a class="nav-link {% if not tipo_actual %}active{% endif %}" href="{% url 'contactos:list' %}">
+      <i class="bi bi-collection"></i> Todos
+    </a>
+  </li>
+  {% for t in tipos %}
+  <li class="nav-item">
+    <a class="nav-link {% if tipo_actual.pk == t.pk %}active{% endif %}" href="?tipo={{ t.slug }}">
+      <i class="bi bi-{{ t.icono|default:'person' }}"></i> {{ t.nombre_plural }}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{# ── Filtros guardados ─────────────────────── #}
+{% if filtros_guardados %}
+<div class="d-flex gap-2 flex-wrap mb-2 align-items-center">
+  <span class="small text-muted"><i class="bi bi-bookmark me-1"></i>Mis filtros:</span>
+  {% for f in filtros_guardados %}
+  <a href="?{% for k, v in f.parametros.items %}{{ k }}={{ v }}&{% endfor %}"
+     class="badge bg-secondary text-decoration-none badge-tag">{{ f.nombre }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Filtro por etiqueta ───────────────────── #}
+{% if etiquetas %}
+<div class="d-flex gap-1 flex-wrap mb-2 align-items-center">
+  <span class="small text-muted"><i class="bi bi-bookmark-fill me-1"></i>Etiquetas:</span>
+  {% for et in etiquetas %}
+  <a href="?{% for key, values in request.GET.lists %}{% if key != 'etiqueta' and key != 'page' %}{% for v in values %}{{ key }}={{ v }}&{% endfor %}{% endif %}{% endfor %}etiqueta={{ et.slug }}"
+     class="badge bg-{{ et.color }} text-decoration-none badge-tag {% if request.GET.etiqueta == et.slug %}border border-white{% endif %}"
+     style="font-size:.7rem;">{{ et.nombre }}</a>
+  {% endfor %}
+  {% if request.GET.etiqueta %}
+  <a href="?{% for key, values in request.GET.lists %}{% if key != 'etiqueta' and key != 'page' %}{% for v in values %}{{ key }}={{ v }}&{% endfor %}{% endif %}{% endfor %}"
+     class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.7rem;">
+    <i class="bi bi-x"></i> Quitar filtro
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% include "includes/filter_builder.html" with clear_url="/contactos/" %}
+
+<!-- Bulk action bar (supervisor only) -->
+{% if request.user.can_see_all_leads %}
+<div id="bulk-bar" class="d-none mb-2">
+  <form method="post" action="{% url 'contactos:bulk_assign' %}" id="bulk-form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <div class="card border-primary border-0 shadow-sm">
+      <div class="card-body py-2 px-3 d-flex align-items-center gap-3 flex-wrap">
+        <span class="fw-semibold text-primary small">
+          <i class="bi bi-check2-square"></i> <span id="bulk-count">0</span> seleccionado(s)
+        </span>
+        <div class="d-flex align-items-center gap-2 ms-auto">
+          <select name="agente_id" class="form-select form-select-sm" required>
+            <option value="">Asignar a agente…</option>
+            {% for a in agents %}
+            <option value="{{ a.pk }}">{{ a.get_full_name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-person-check"></i> Asignar
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-deselect">
+            <i class="bi bi-x"></i> Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<!-- Table -->
+<form id="bulk-form-wrap">
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            {% if request.user.can_see_all_leads %}
+            <th style="width:36px;">
+              <input type="checkbox" class="form-check-input" id="chk-all" title="Seleccionar todos">
+            </th>
+            {% endif %}
+            <th>Nombre</th>
+            <th class="d-none d-md-table-cell">Tipo</th>
+            <th class="d-none d-sm-table-cell">Teléfono</th>
+            <th class="d-none d-lg-table-cell">Plan</th>
+            <th>Etapa</th>
+            <th class="d-none d-md-table-cell">Prioridad</th>
+            <th class="d-none d-lg-table-cell">Agente</th>
+            <th class="d-none d-xl-table-cell">Creado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for contacto in contactos %}
+          <tr>
+            {% if request.user.can_see_all_leads %}
+            <td>
+              <input type="checkbox" class="form-check-input contacto-chk" value="{{ contacto.pk }}" name="contacto_ids">
+            </td>
+            {% endif %}
+            <td><a href="{% url 'contactos:detail' contacto.pk %}" class="fw-semibold text-decoration-none text-truncate d-block" style="max-width:160px;">{{ contacto.nombre_completo }}</a></td>
+            <td class="d-none d-md-table-cell">
+              <span class="badge bg-{{ contacto.tipo.color }}"><i class="bi bi-{{ contacto.tipo.icono|default:'person' }}"></i> {{ contacto.tipo.nombre }}</span>
+            </td>
+            <td class="d-none d-sm-table-cell"><a href="tel:{{ contacto.telefono }}" class="text-muted text-decoration-none">{{ contacto.telefono }}</a></td>
+            <td class="small d-none d-lg-table-cell">{{ contacto.plan_interes|default:"—" }}</td>
+            <td>
+              <span class="badge bg-{{ contacto.get_stage_badge_class }}">{{ contacto.stage.nombre|default:"Sin etapa" }}</span>
+              {% if contacto.stage_updated_at %}
+              {% with d=contacto.stage_updated_at|dias_desde c=contacto.stage_updated_at|lead_cold_class %}
+              {% if d >= 3 %}
+              <i class="bi bi-thermometer-{% if d >= 7 %}snow text-danger{% else %}half text-warning{% endif %} ms-1"
+                 title="{{ d }} días sin cambio de etapa"></i>
+              {% endif %}
+              {% endwith %}
+              {% endif %}
+            </td>
+            <td class="d-none d-md-table-cell"><span class="badge bg-{{ contacto.get_prioridad_badge_class }}">{{ contacto.get_prioridad_display }}</span></td>
+            <td class="small d-none d-lg-table-cell">{{ contacto.agente.display_name|default:"Sin asignar" }}</td>
+            <td class="small text-muted d-none d-xl-table-cell">{{ contacto.created_at|date:"d/m/Y" }}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <a href="{% url 'contactos:detail' contacto.pk %}" class="btn btn-sm btn-outline-primary" title="Ver contacto"><i class="bi bi-eye"></i></a>
+                {% if contacto.telefono and contacto.telefono|slice:":1" == "+" %}
+                  {% if contacto.conversacion_whatsapp %}
+                  <a href="{% url 'whatsapp:inbox' %}?conv={{ contacto.conversacion_whatsapp.pk }}" class="btn btn-sm btn-success" title="Abrir chat WhatsApp"><i class="bi bi-whatsapp"></i></a>
+                  {% else %}
+                  <form method="post" action="{% url 'whatsapp:iniciar_conversacion' contacto.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-success" title="Iniciar WhatsApp"><i class="bi bi-whatsapp"></i></button>
+                  </form>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="10" class="text-center text-muted py-4">No se encontraron contactos.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</form>
+
+<!-- Pagination -->
+{% if contactos.has_other_pages %}
+<nav class="mt-3">
+  <ul class="pagination pagination-sm justify-content-center">
+    {% if contactos.has_previous %}
+    <li class="page-item"><a class="page-link" href="?{% for key, values in request.GET.lists %}{% if key != 'page' %}{% for v in values %}{{ key }}={{ v|urlencode }}&{% endfor %}{% endif %}{% endfor %}page={{ contactos.previous_page_number }}">«</a></li>
+    {% endif %}
+    <li class="page-item disabled"><span class="page-link">{{ contactos.number }} / {{ contactos.paginator.num_pages }}</span></li>
+    {% if contactos.has_next %}
+    <li class="page-item"><a class="page-link" href="?{% for key, values in request.GET.lists %}{% if key != 'page' %}{% for v in values %}{{ key }}={{ v|urlencode }}&{% endfor %}{% endif %}{% endfor %}page={{ contactos.next_page_number }}">»</a></li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+
+{% if request.user.can_see_all_leads %}
+<script>
+const chkAll = document.getElementById('chk-all');
+const bulkBar = document.getElementById('bulk-bar');
+const bulkCount = document.getElementById('bulk-count');
+const bulkForm = document.getElementById('bulk-form');
+
+function getChecked() {
+  return [...document.querySelectorAll('.contacto-chk:checked')];
+}
+
+function syncBar() {
+  const checked = getChecked();
+  bulkCount.textContent = checked.length;
+  bulkBar.classList.toggle('d-none', checked.length === 0);
+}
+
+chkAll.addEventListener('change', () => {
+  document.querySelectorAll('.contacto-chk').forEach(c => c.checked = chkAll.checked);
+  syncBar();
+});
+
+document.querySelectorAll('.contacto-chk').forEach(c => {
+  c.addEventListener('change', () => {
+    chkAll.checked = getChecked().length === document.querySelectorAll('.contacto-chk').length;
+    syncBar();
+  });
+});
+
+document.getElementById('btn-deselect').addEventListener('click', () => {
+  document.querySelectorAll('.contacto-chk, #chk-all').forEach(c => c.checked = false);
+  syncBar();
+});
+
+bulkForm.addEventListener('submit', function(e) {
+  const checked = getChecked();
+  if (!checked.length) { e.preventDefault(); return; }
+  if (!this.querySelector('[name=agente_id]').value) {
+    e.preventDefault();
+    this.querySelector('[name=agente_id]').focus();
+    return;
+  }
+  checked.forEach(c => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'contacto_ids';
+    inp.value = c.value;
+    this.appendChild(inp);
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

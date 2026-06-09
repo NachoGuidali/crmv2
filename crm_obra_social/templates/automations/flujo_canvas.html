@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+{% block title %}{% if flujo %}Editar{% else %}Nuevo{% endif %} flujo{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/drawflow@0.0.59/dist/drawflow.min.css">
+<style>
+/* ── Canvas layout ──────────────────────────────────────── */
+.flujo-wrap { display:flex; height:calc(100vh - var(--topbar-h) - 80px); min-height:500px; gap:0; }
+.flujo-sidebar {
+  width:220px; flex-shrink:0; background:var(--bg2); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; overflow-y:auto;
+}
+.flujo-canvas-area { flex:1; position:relative; background:#0a1520; }
+#drawflow { width:100%; height:100%; }
+.flujo-panel {
+  width:280px; flex-shrink:0; background:var(--bg2); border-left:1px solid var(--border);
+  display:flex; flex-direction:column; overflow-y:auto; padding:12px;
+}
+
+/* ── Sidebar nodes ──────────────────────────────────────── */
+.df-node-type {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  background:var(--bg3); border:1px solid var(--border); border-radius:6px;
+  margin:6px 10px; cursor:grab; font-size:.8rem; user-select:none;
+  transition:background .15s;
+}
+.df-node-type:hover { background:var(--bg4); }
+.df-node-type .dot { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
+
+/* ── Drawflow node overrides ────────────────────────────── */
+.drawflow .drawflow-node { background:var(--bg3) !important; border:1px solid var(--border) !important; border-radius:8px !important; color:var(--text) !important; min-width:170px; padding:0 !important; }
+.drawflow .drawflow-node.selected { border-color:var(--blue) !important; box-shadow:0 0 0 2px rgba(99,179,237,.3) !important; }
+.df-node-inner { padding:10px 12px; }
+.df-node-title { font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; opacity:.6; margin-bottom:3px; }
+.df-node-desc  { font-size:.82rem; }
+.df-node-trigger { border-top:3px solid #f6ad55 !important; }
+.df-node-espera  { border-top:3px solid #76e4f7 !important; }
+.df-node-condicion { border-top:3px solid #9f7aea !important; }
+.df-node-accion  { border-top:3px solid #68d391 !important; }
+
+/* output labels for condition */
+.df-out-yes { color:#68d391; font-size:.65rem; position:absolute; right:-28px; top:4px; }
+.df-out-no  { color:#fc8181; font-size:.65rem; position:absolute; right:-22px; bottom:4px; }
+
+/* ── Panel config ───────────────────────────────────────── */
+.panel-title { font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-bottom:10px; }
+.panel-field label { font-size:.75rem; font-weight:600; margin-bottom:2px; display:block; }
+.panel-field { margin-bottom:10px; }
+.panel-empty { color:var(--text3); font-size:.8rem; text-align:center; margin-top:40px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<form id="flujoForm" method="post">
+{% csrf_token %}
+<input type="hidden" name="grafo" id="grafoInput">
+<input type="hidden" name="trigger_config" id="triggerConfigInput">
+
+{# ── Topbar del canvas ─────────────────────────────────── #}
+<div class="d-flex align-items-center gap-3 mb-2 flex-wrap">
+  <a href="{% url 'automations:flujo_list' %}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <input type="text" name="nombre" class="form-control form-control-sm fw-bold"
+         style="max-width:260px;" placeholder="Nombre del flujo"
+         value="{{ flujo.nombre|default:'' }}" required>
+  <input type="text" name="descripcion" class="form-control form-control-sm"
+         style="max-width:220px;" placeholder="Descripción (opcional)"
+         value="{{ flujo.descripcion|default:'' }}">
+  <div class="d-flex align-items-center gap-2">
+    <label class="small fw-semibold mb-0">Trigger:</label>
+    <select name="trigger_tipo" id="triggerTipoSel" class="form-select form-select-sm" style="width:auto;">
+      {% for val, label in trigger_choices %}
+      <option value="{{ val }}" {% if flujo.trigger_tipo == val %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div id="triggerConfigArea" class="d-flex gap-2 align-items-center flex-wrap"></div>
+  <div class="form-check mb-0">
+    <input type="checkbox" class="form-check-input" id="activoCheck" name="activo" value="1"
+           {% if flujo.activo %}checked{% endif %}>
+    <label for="activoCheck" class="form-check-label small">Activo</label>
+  </div>
+  <button type="submit" class="btn btn-primary btn-sm ms-auto">
+    <i class="bi bi-check-lg me-1"></i> Guardar flujo
+  </button>
+</div>
+
+{# ── Tres paneles: sidebar / canvas / config ──────────── #}
+<div class="flujo-wrap rounded overflow-hidden border border-secondary-subtle">
+
+  {# SIDEBAR: tipos de nodo arrastrables #}
+  <div class="flujo-sidebar py-2">
+    <div class="px-3 pb-1" style="font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Nodos</div>
+
+    <div class="df-node-type" draggable="true" data-node="trigger">
+      <div class="dot" style="background:#f6ad55;"></div>
+      <div><strong>Trigger</strong><div style="font-size:.7rem;opacity:.6;">Punto de inicio</div></div>
+    </div>
+    <div class="df-node-type" draggable="true" data-node="espera">
+      <div class="dot" style="background:#76e4f7;"></div>
+      <div><strong>Espera</strong><div style="font-size:.7rem;opacity:.6;">Pausar N tiempo</div></div>
+    </div>
+    <div class="df-node-type" draggable="true" data-node="condicion">
+      <div class="dot" style="background:#9f7aea;"></div>
+      <div><strong>Condición</strong><div style="font-size:.7rem;opacity:.6;">Si / No</div></div>
+    </div>
+    <div class="df-node-type" draggable="true" data-node="accion">
+      <div class="dot" style="background:#68d391;"></div>
+      <div><strong>Acción</strong><div style="font-size:.7rem;opacity:.6;">Ejecutar algo</div></div>
+    </div>
+
+    <div class="px-3 pt-3 pb-1" style="font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;">Ayuda</div>
+    <div class="px-3" style="font-size:.72rem;color:var(--text3);line-height:1.5;">
+      <p>Arrastrá nodos al canvas. Conectalos desde los puntos de salida (derecha) al punto de entrada (izquierda).</p>
+      <p>En la condición, la salida superior es <span style="color:#68d391;">SÍ</span> y la inferior es <span style="color:#fc8181;">NO</span>.</p>
+      <p>Hacé clic en un nodo para configurarlo.</p>
+    </div>
+  </div>
+
+  {# CANVAS #}
+  <div class="flujo-canvas-area">
+    <div id="drawflow"></div>
+    <div style="position:absolute;bottom:10px;left:10px;display:flex;gap:6px;z-index:10;">
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="editor.zoom_in()"><i class="bi bi-zoom-in"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="editor.zoom_out()"><i class="bi bi-zoom-out"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="editor.zoom_reset()"><i class="bi bi-aspect-ratio"></i></button>
+    </div>
+  </div>
+
+  {# CONFIG PANEL #}
+  <div class="flujo-panel" id="configPanel">
+    <div class="panel-empty" id="panelEmpty">
+      <i class="bi bi-cursor d-block fs-4 mb-2 opacity-50"></i>
+      Seleccioná un nodo para configurarlo
+    </div>
+    <div id="panelContent" style="display:none;"></div>
+  </div>
+</div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/drawflow@0.0.59/dist/drawflow.min.js"></script>
+<script>
+// ── Data from Django ──────────────────────────────────────────────────────────
+const STAGES   = {{ stages_json|safe }};
+const AGENTES  = {{ agentes_json|safe }};
+const ETIQUETAS = {{ etiquetas_json|safe }};
+const CAMPOS   = {{ campos_choices_json|safe }};
+const FLUJO_GRAFO = {{ flujo_grafo_json|safe }};
+
+// ── Drawflow init ─────────────────────────────────────────────────────────────
+const container = document.getElementById('drawflow');
+const editor = new Drawflow(container);
+editor.reroute = true;
+editor.reroute_fix_curvature = true;
+editor.force_first_input = false;
+editor.start();
+
+// Load existing graph if editing
+if (FLUJO_GRAFO && FLUJO_GRAFO.drawflow) {
+  editor.import(FLUJO_GRAFO);
+}
+
+// ── Drag & drop from sidebar ──────────────────────────────────────────────────
+let dragNodeType = null;
+document.querySelectorAll('.df-node-type').forEach(el => {
+  el.addEventListener('dragstart', e => {
+    dragNodeType = el.dataset.node;
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+});
+
+container.addEventListener('dragover', e => e.preventDefault());
+container.addEventListener('drop', e => {
+  e.preventDefault();
+  if (!dragNodeType) return;
+  const rect = container.getBoundingClientRect();
+  const zoom = editor.zoom;
+  const x = (e.clientX - rect.left - editor.canvas_x) / zoom;
+  const y = (e.clientY - rect.top  - editor.canvas_y) / zoom;
+  addNode(dragNodeType, x, y);
+  dragNodeType = null;
+});
+
+// ── Node HTML templates ───────────────────────────────────────────────────────
+function nodeHtml(tipo, data) {
+  const labels = {trigger:'Trigger', espera:'Espera', condicion:'Condición', accion:'Acción'};
+  const descs  = {
+    trigger:   data.label  || 'Inicio del flujo',
+    espera:    data.label  || `Esperar ${data.cantidad||1} ${data.unidad||'horas'}`,
+    condicion: data.label  || `Si ${data.campo||'campo'} ${data.operador||'='} ${data.valor||'…'}`,
+    accion:    data.label  || (data.accion_tipo ? labelAccion(data.accion_tipo) : 'Configurar…'),
+  };
+  let extra = '';
+  if (tipo === 'condicion') {
+    extra = '<div style="position:relative;height:14px;">'
+          + '<span class="df-out-yes">SÍ ●</span>'
+          + '<span class="df-out-no">NO ●</span></div>';
+  }
+  return `<div class="df-node-inner df-node-${tipo}">
+    <div class="df-node-title">${labels[tipo]||tipo}</div>
+    <div class="df-node-desc" id="nd-desc">${descs[tipo]}</div>
+    ${extra}
+  </div>`;
+}
+
+function labelAccion(tipo) {
+  const m = {mensaje_wa:'Enviar WA', cambiar_etapa:'Cambiar etapa', asignar_agente:'Asignar agente',
+             crear_tarea:'Crear tarea', agregar_etiqueta:'Agregar etiqueta', webhook:'Webhook'};
+  return m[tipo] || tipo;
+}
+
+function addNode(tipo, x, y, data={}) {
+  const inputs  = tipo === 'trigger' ? 0 : 1;
+  const outputs = tipo === 'condicion' ? 2 : (tipo === 'accion' ? 1 : 1);
+  editor.addNode(tipo, inputs, outputs, x, y, `df-node-${tipo}`, data, nodeHtml(tipo, data));
+}
+
+// ── Node click → config panel ─────────────────────────────────────────────────
+let selectedNodeId = null;
+
+editor.on('nodeSelected', id => {
+  selectedNodeId = id;
+  renderPanel(id);
+});
+editor.on('nodeUnselected', () => {
+  selectedNodeId = null;
+  document.getElementById('panelEmpty').style.display = '';
+  document.getElementById('panelContent').style.display = 'none';
+});
+editor.on('nodeRemoved', () => {
+  selectedNodeId = null;
+  document.getElementById('panelEmpty').style.display = '';
+  document.getElementById('panelContent').style.display = 'none';
+});
+
+function renderPanel(nodeId) {
+  const node = editor.getNodeFromId(nodeId);
+  if (!node) return;
+  const tipo = node.name;
+  const data = node.data || {};
+  const empty = document.getElementById('panelEmpty');
+  const content = document.getElementById('panelContent');
+  empty.style.display = 'none';
+  content.style.display = '';
+  content.innerHTML = buildPanelHtml(tipo, data);
+  // Live update node description on input changes
+  content.querySelectorAll('input, select, textarea').forEach(inp => {
+    inp.addEventListener('input', () => savePanel(nodeId));
+    inp.addEventListener('change', () => savePanel(nodeId));
+  });
+}
+
+function savePanel(nodeId) {
+  const content = document.getElementById('panelContent');
+  const data = {};
+  content.querySelectorAll('[data-key]').forEach(el => {
+    data[el.dataset.key] = el.value;
+  });
+  editor.updateNodeDataFromId(nodeId, data);
+  // Update visible description in the node
+  const node = editor.getNodeFromId(nodeId);
+  const descEl = document.querySelector(`.drawflow-node[id="node-${nodeId}"] #nd-desc`);
+  if (descEl) {
+    descEl.textContent = buildNodeDesc(node.name, data);
+  }
+}
+
+function buildNodeDesc(tipo, d) {
+  if (tipo === 'trigger') return d.label || 'Inicio del flujo';
+  if (tipo === 'espera')  return `Esperar ${d.cantidad||1} ${d.unidad||'horas'}`;
+  if (tipo === 'condicion') return `Si ${d.campo||'campo'} ${d.operador||'='} "${d.valor||''}"`;
+  if (tipo === 'accion')  return d.accion_tipo ? labelAccion(d.accion_tipo) : 'Configurar…';
+  return tipo;
+}
+
+function field(key, label, html) {
+  return `<div class="panel-field"><label>${label}</label>${html}</div>`;
+}
+function sel(key, val, opts) {
+  const options = opts.map(([v,l]) => `<option value="${escHtml(v)}" ${v==val?'selected':''}>${escHtml(l)}</option>`).join('');
+  return `<select class="form-select form-select-sm" data-key="${key}">${options}</select>`;
+}
+function inp(key, val, type='text', placeholder='') {
+  return `<input type="${type}" class="form-control form-control-sm" data-key="${key}" value="${escHtml(val||'')}" placeholder="${escHtml(placeholder)}">`;
+}
+function txt(key, val, placeholder='') {
+  return `<textarea class="form-control form-control-sm" rows="3" data-key="${key}" placeholder="${escHtml(placeholder)}">${escHtml(val||'')}</textarea>`;
+}
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function buildPanelHtml(tipo, d) {
+  let html = `<div class="panel-title">${tipo.toUpperCase()}</div>`;
+  if (tipo === 'trigger') {
+    html += field('label', 'Etiqueta', inp('label', d.label, 'text', 'Descripción visible'));
+    return html;
+  }
+  if (tipo === 'espera') {
+    html += field('cantidad', 'Cantidad', inp('cantidad', d.cantidad||'1', 'number'));
+    html += field('unidad', 'Unidad', sel('unidad', d.unidad||'horas', [['horas','Horas'],['dias','Días']]));
+    return html;
+  }
+  if (tipo === 'condicion') {
+    html += field('campo', 'Campo', sel('campo', d.campo||'stage', CAMPOS));
+    html += field('operador', 'Operador', sel('operador', d.operador||'eq', [
+      ['eq','es igual a'],['neq','no es igual a'],['contains','contiene'],
+      ['empty','está vacío'],['not_empty','no está vacío'],
+    ]));
+    html += field('valor', 'Valor', inp('valor', d.valor, 'text', 'Valor esperado'));
+    html += `<div class="small mt-2">
+      <span style="color:#68d391;">● Salida superior = SÍ (true)</span><br>
+      <span style="color:#fc8181;">● Salida inferior = NO (false)</span>
+    </div>`;
+    return html;
+  }
+  if (tipo === 'accion') {
+    html += field('accion_tipo', 'Tipo de acción', sel('accion_tipo', d.accion_tipo||'', [
+      ['','— Elegir —'],
+      ['mensaje_wa','Enviar mensaje WhatsApp'],
+      ['cambiar_etapa','Cambiar de etapa'],
+      ['asignar_agente','Asignar agente'],
+      ['crear_tarea','Crear tarea'],
+      ['agregar_etiqueta','Agregar etiqueta'],
+      ['webhook','Llamar webhook'],
+    ]));
+    const at = d.accion_tipo || '';
+    if (at === 'mensaje_wa') {
+      html += field('texto', 'Texto del mensaje', txt('texto', d.texto, 'Hola {nombre}…'));
+      html += '<div class="small text-muted">Variables: {nombre}, {etapa}, {telefono}</div>';
+    }
+    if (at === 'cambiar_etapa') {
+      const stageOpts = [['','— Sin cambiar —']].concat(STAGES.map(s => [String(s.pk), s.pipeline__nombre + ' › ' + s.nombre]));
+      html += field('etapa_id', 'Etapa destino', sel('etapa_id', d.etapa_id||'', stageOpts));
+    }
+    if (at === 'asignar_agente') {
+      const agOpts = [['','— Sin asignar —']].concat(AGENTES.map(a => [String(a.pk), a.display_name]));
+      html += field('agente_id', 'Agente', sel('agente_id', d.agente_id||'', agOpts));
+    }
+    if (at === 'crear_tarea') {
+      html += field('descripcion', 'Descripción', txt('descripcion', d.descripcion, 'Llamar a {nombre}'));
+      html += field('dias_plazo', 'Días de plazo', inp('dias_plazo', d.dias_plazo||'1', 'number'));
+    }
+    if (at === 'agregar_etiqueta') {
+      const etOpts = [['','— Elegir —']].concat(ETIQUETAS.map(e => [e.slug, e.nombre]));
+      html += field('etiqueta_slug', 'Etiqueta', sel('etiqueta_slug', d.etiqueta_slug||'', etOpts));
+    }
+    if (at === 'webhook') {
+      html += field('url', 'URL del webhook', inp('url', d.url, 'url', 'https://...'));
+    }
+    return html;
+  }
+  return html;
+}
+
+// ── Delete selected node with DEL key ─────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId
+      && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+    editor.removeNodeId(`node-${selectedNodeId}`);
+  }
+});
+
+// ── Trigger config area ───────────────────────────────────────────────────────
+const TIPOS_CONTACTO = {{ tipos_contacto_json|safe }};
+const triggerSel = document.getElementById('triggerTipoSel');
+const triggerArea = document.getElementById('triggerConfigArea');
+const FLUJO_TRIGGER_CONFIG = {{ flujo_trigger_config_json|safe }};
+
+function renderTriggerConfig() {
+  const tipo = triggerSel.value;
+  let html = '';
+  if (tipo === 'lead_creado' || tipo === 'tiempo_en_etapa') {
+    const tcOpts = `<option value="">Todos los tipos</option>`
+      + TIPOS_CONTACTO.map(t => `<option value="${t.pk}" ${FLUJO_TRIGGER_CONFIG.tipo_contacto_id==t.pk?'selected':''}>${escHtml(t.nombre)}</option>`).join('');
+    html += `<div class="d-flex align-items-center gap-1">
+      <label class="small mb-0">Tipo contacto:</label>
+      <select class="form-select form-select-sm" style="width:auto;" id="tc_sel">${tcOpts}</select>
+    </div>`;
+  }
+  if (tipo === 'tiempo_en_etapa') {
+    html += `<div class="d-flex align-items-center gap-1 ms-2">
+      <label class="small mb-0">Días:</label>
+      <input type="number" class="form-control form-control-sm" style="width:70px;" id="dias_sel"
+             value="${FLUJO_TRIGGER_CONFIG.dias||3}" min="1">
+    </div>`;
+  }
+  if (tipo === 'etapa_cambiada') {
+    const stageOpts = `<option value="">Cualquier etapa</option>`
+      + STAGES.map(s => `<option value="${s.pk}" ${FLUJO_TRIGGER_CONFIG.etapa_id==s.pk?'selected':''}>${escHtml(s.pipeline__nombre)} › ${escHtml(s.nombre)}</option>`).join('');
+    html += `<div class="d-flex align-items-center gap-1">
+      <label class="small mb-0">Etapa destino:</label>
+      <select class="form-select form-select-sm" style="width:auto;" id="stage_sel">${stageOpts}</select>
+    </div>`;
+  }
+  triggerArea.innerHTML = html;
+}
+triggerSel.addEventListener('change', renderTriggerConfig);
+renderTriggerConfig();
+
+// ── Form submit: serialize graph + trigger config ─────────────────────────────
+document.getElementById('flujoForm').addEventListener('submit', function(e) {
+  // Serialize drawflow graph
+  document.getElementById('grafoInput').value = JSON.stringify(editor.export());
+
+  // Serialize trigger config
+  const tipo = triggerSel.value;
+  const cfg = {};
+  if (tipo === 'lead_creado' || tipo === 'tiempo_en_etapa') {
+    const tc = document.getElementById('tc_sel');
+    if (tc && tc.value) cfg.tipo_contacto_id = parseInt(tc.value);
+  }
+  if (tipo === 'tiempo_en_etapa') {
+    const dias = document.getElementById('dias_sel');
+    cfg.dias = parseInt(dias ? dias.value : 3);
+  }
+  if (tipo === 'etapa_cambiada') {
+    const st = document.getElementById('stage_sel');
+    if (st && st.value) cfg.etapa_id = parseInt(st.value);
+  }
+  document.getElementById('triggerConfigInput').value = JSON.stringify(cfg);
+});
+</script>
+{% endblock %}

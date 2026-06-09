@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Flujos visuales{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0 fw-bold"><i class="bi bi-diagram-3 me-2"></i>Flujos visuales</h4>
+  <a href="{% url 'automations:flujo_create' %}" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus"></i> Nuevo flujo
+  </a>
+</div>
+
+{% if flujos %}
+<div class="row g-3">
+  {% for flujo in flujos %}
+  <div class="col-12 col-md-6 col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="fw-bold mb-0">{{ flujo.nombre }}</h6>
+          <span class="badge {% if flujo.activo %}bg-success{% else %}bg-secondary{% endif %}">
+            {% if flujo.activo %}Activo{% else %}Pausado{% endif %}
+          </span>
+        </div>
+        {% if flujo.descripcion %}
+        <p class="small text-muted mb-2">{{ flujo.descripcion|truncatechars:80 }}</p>
+        {% endif %}
+        <div class="small text-muted mb-3">
+          <i class="bi bi-lightning me-1"></i>
+          {{ flujo.get_trigger_tipo_display }}
+          <br>
+          <i class="bi bi-play-circle me-1"></i>
+          {{ flujo.ejecuciones.count }} ejecucion(es) total
+          &nbsp;·&nbsp;
+          {{ flujo.ejecuciones.filter.count }}
+          <span class="text-warning">{{ flujo.ejecuciones.all|length }} en curso</span>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <a href="{% url 'automations:flujo_update' flujo.pk %}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-diagram-3"></i> Editar
+          </a>
+          <a href="{% url 'automations:flujo_ejecuciones' flujo.pk %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-list-check"></i> Ejecuciones
+          </a>
+          <button class="btn btn-sm {% if flujo.activo %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                  onclick="toggleFlujo({{ flujo.pk }}, this)">
+            {% if flujo.activo %}<i class="bi bi-pause"></i> Pausar{% else %}<i class="bi bi-play"></i> Activar{% endif %}
+          </button>
+          <form method="post" action="{% url 'automations:flujo_delete' flujo.pk %}"
+                onsubmit="return confirm('¿Eliminar «{{ flujo.nombre }}»? Se perderán todas sus ejecuciones.')">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </div>
+      <div class="card-footer bg-transparent small text-muted">
+        Creado por {{ flujo.creado_por.display_name|default:"Sistema" }} · {{ flujo.created_at|date:"d/m/Y" }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-5">
+  <i class="bi bi-diagram-3" style="font-size:3rem;opacity:.3;"></i>
+  <h5 class="mt-3 fw-normal text-muted">Sin flujos todavía</h5>
+  <p class="small text-muted">Creá tu primer flujo visual para automatizar el proceso de ventas.</p>
+  <a href="{% url 'automations:flujo_create' %}" class="btn btn-primary">
+    <i class="bi bi-plus"></i> Crear primer flujo
+  </a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleFlujo(pk, btn) {
+  fetch(`/automatizaciones/flujos/${pk}/toggle/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': '{{ csrf_token }}'},
+  }).then(r => r.json()).then(data => {
+    if (data.ok) location.reload();
+  });
+}
+</script>
+{% endblock %}
