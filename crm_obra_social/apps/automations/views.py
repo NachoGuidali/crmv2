@@ -10,7 +10,7 @@ from django.views.generic import DeleteView
 from django.urls import reverse_lazy
 
 from apps.whatsapp.models import PlantillaHSM
-from apps.contactos.models import PipelineStage, TipoContacto, Etiqueta
+from apps.contactos.models import Contacto, PipelineStage, TipoContacto, Etiqueta, Plan, CampoPersonalizado
 from apps.users.models import User
 from .models import ReglaAutomatizacion, AutomatizacionLog, Flujo, EjecucionFlujo
 
@@ -108,6 +108,69 @@ class LogListView(LoginRequiredMixin, SupervisorMixin, View):
 
 # --- Helpers ---
 
+def _condicion_campos():
+    """Registro unificado de campos disponibles para condiciones/eventos
+    (Reglas, Disparadores, Flujos visuales y el bot de WhatsApp).
+
+    Cada item: {'value', 'label', 'type', 'options'}. `type` es uno de
+    'text' | 'number' | 'date' | 'select'; `options` (solo para 'select')
+    es una lista de {'v', 'l'}.
+
+    Las claves y los valores de 'options' coinciden con lo que
+    `apps.automations.tasks._get_field_value` / `_eval_operador` resuelven
+    y comparan (p.ej. para 'stage' el valor es el *nombre* de la etapa, no
+    su pk), incluyendo los campos personalizados (clave = slug, leídos de
+    `contacto.datos_extra`).
+    """
+    campos = [
+        {'value': 'nombre_completo', 'label': 'Nombre', 'type': 'text'},
+        {'value': 'telefono', 'label': 'Teléfono', 'type': 'text'},
+        {'value': 'email', 'label': 'Email', 'type': 'text'},
+        {'value': 'dni', 'label': 'DNI', 'type': 'text'},
+        {'value': 'localidad', 'label': 'Localidad', 'type': 'text'},
+        {'value': 'provincia', 'label': 'Provincia', 'type': 'text'},
+        {'value': 'notas', 'label': 'Notas', 'type': 'text'},
+        {'value': 'motivo_perdida', 'label': 'Motivo de pérdida', 'type': 'text'},
+        {'value': 'tipo', 'label': 'Tipo de contacto', 'type': 'select',
+         'options': [{'v': t.nombre, 'l': t.nombre}
+                     for t in TipoContacto.objects.filter(activo=True).order_by('nombre')]},
+        {'value': 'stage', 'label': 'Etapa', 'type': 'select',
+         'options': [{'v': s.nombre, 'l': f'{s.pipeline.nombre} — {s.nombre}'}
+                     for s in PipelineStage.objects.select_related('pipeline').order_by('pipeline__nombre', 'orden')]},
+        {'value': 'prioridad', 'label': 'Prioridad', 'type': 'select',
+         'options': [{'v': v, 'l': l} for v, l in Contacto.PRIORIDAD_CHOICES]},
+        {'value': 'origen', 'label': 'Origen', 'type': 'select',
+         'options': [{'v': v, 'l': l} for v, l in Contacto.ORIGEN_CHOICES]},
+        {'value': 'agente', 'label': 'Agente asignado', 'type': 'select',
+         'options': [{'v': u.display_name, 'l': u.display_name}
+                     for u in User.objects.filter(is_active=True).order_by('first_name', 'last_name')]},
+        {'value': 'plan_interes', 'label': 'Plan de interés', 'type': 'select',
+         'options': [{'v': p.nombre, 'l': p.nombre} for p in Plan.objects.filter(activo=True).order_by('nombre')]},
+        {'value': 'grupo_familiar', 'label': 'Grupo familiar', 'type': 'number'},
+        {'value': 'etiquetas', 'label': 'Etiquetas', 'type': 'select',
+         'options': [{'v': e.nombre, 'l': e.nombre} for e in Etiqueta.objects.all().order_by('nombre')]},
+        {'value': 'created_at', 'label': 'Fecha de creación', 'type': 'date'},
+        {'value': 'updated_at', 'label': 'Última actualización', 'type': 'date'},
+        {'value': 'fecha_nacimiento', 'label': 'Fecha de nacimiento', 'type': 'date'},
+    ]
+
+    for cp in CampoPersonalizado.objects.filter(activo=True).order_by('orden', 'nombre'):
+        if cp.tipo == CampoPersonalizado.TIPO_LISTA:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'select',
+                            'options': [{'v': o, 'l': o} for o in (cp.opciones or [])]})
+        elif cp.tipo == CampoPersonalizado.TIPO_BOOLEANO:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'select',
+                            'options': [{'v': 'true', 'l': 'Sí'}, {'v': 'false', 'l': 'No'}]})
+        elif cp.tipo == CampoPersonalizado.TIPO_NUMERO:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'number'})
+        elif cp.tipo == CampoPersonalizado.TIPO_FECHA:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'date'})
+        else:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'text'})
+
+    return campos
+
+
 def _form_ctx(data=None, instance=None):
     from apps.contactos.models import Contacto, TipoContacto, PipelineStage
     from apps.users.models import User
@@ -120,7 +183,6 @@ def _form_ctx(data=None, instance=None):
         'unidad_choices': R.UNIDAD_CHOICES,
         'campo_fecha_choices': R.CAMPO_FECHA_CHOICES,
         'evento_choices': R.EVENTO_CHOICES,
-        'campo_choices': R.CAMPO_CHOICES,
         'operador_choices': R.OPERADOR_CHOICES,
         'conector_choices': R.CONECTOR_CHOICES,
         'accion_choices': R.ACCION_CHOICES,
@@ -130,7 +192,8 @@ def _form_ctx(data=None, instance=None):
         'stages': PipelineStage.objects.select_related('pipeline').order_by('pipeline__nombre', 'orden'),
         'plantillas': PlantillaHSM.objects.filter(activa=True),
         'agentes': User.objects.filter(is_active=True).order_by('first_name', 'last_name'),
-        'condiciones_json': json.dumps(instance.condiciones if instance else []),
+        'condiciones_json': json.dumps(instance.condiciones if instance else [], ensure_ascii=False),
+        'campos_condicion_json': json.dumps(_condicion_campos(), ensure_ascii=False),
     }
     return ctx
 
@@ -243,10 +306,6 @@ class FlujoCanvasView(LoginRequiredMixin, SupervisorMixin, View):
         agentes_qs = User.objects.filter(is_active=True).order_by('first_name')
         etiquetas_qs = Etiqueta.objects.all()
         tipos_qs = TipoContacto.objects.filter(activo=True)
-        campos_choices = [
-            ('stage', 'Etapa'), ('prioridad', 'Prioridad'), ('origen', 'Origen'),
-            ('agente', 'Agente'), ('tipo', 'Tipo'), ('telefono', 'Teléfono'), ('email', 'Email'),
-        ]
         return {
             'flujo': flujo,
             'trigger_choices': Flujo.TRIGGER_CHOICES,
@@ -255,7 +314,6 @@ class FlujoCanvasView(LoginRequiredMixin, SupervisorMixin, View):
             'agentes': agentes_qs,
             'etiquetas': etiquetas_qs,
             'plantillas': PlantillaHSM.objects.filter(activa=True),
-            'campos_choices': campos_choices,
             # JSON serialised for JS
             'stages_json': json.dumps([
                 {'pk': s.pk, 'nombre': s.nombre, 'pipeline__nombre': s.pipeline.nombre}
@@ -269,7 +327,8 @@ class FlujoCanvasView(LoginRequiredMixin, SupervisorMixin, View):
                 {'slug': e.slug, 'nombre': e.nombre}
                 for e in etiquetas_qs
             ]),
-            'campos_choices_json': json.dumps(campos_choices),
+            'campos_condicion_json': json.dumps(_condicion_campos(), ensure_ascii=False),
+            'operador_choices_json': json.dumps(ReglaAutomatizacion.OPERADOR_CHOICES, ensure_ascii=False),
             'tipos_contacto_json': json.dumps([
                 {'pk': t.pk, 'nombre': t.nombre}
                 for t in tipos_qs

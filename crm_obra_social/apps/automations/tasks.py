@@ -17,14 +17,26 @@ def _get_field_value(contacto, campo):
     if campo == R.CAMPO_ETAPA:
         return contacto.stage.nombre if contacto.stage_id else None
     if campo == R.CAMPO_AGENTE:
-        return str(contacto.agente) if contacto.agente_id else None
+        return contacto.agente.display_name if contacto.agente_id else None
     if campo == R.CAMPO_TIPO:
         return contacto.tipo.nombre if contacto.tipo_id else None
+    if campo == 'plan_interes':
+        return contacto.plan_interes.nombre if contacto.plan_interes_id else None
+    if campo == 'etiquetas':
+        return ', '.join(contacto.etiquetas.values_list('nombre', flat=True))
+    if campo in ('created_at', 'updated_at'):
+        valor = getattr(contacto, campo, None)
+        return timezone.localdate(valor).isoformat() if valor else None
+    if campo == 'fecha_nacimiento':
+        return contacto.fecha_nacimiento.isoformat() if contacto.fecha_nacimiento else None
     if campo in ('prioridad', 'origen', 'nombre_completo', 'telefono', 'email',
-                 'localidad', 'provincia', 'dni', 'notas'):
+                 'localidad', 'provincia', 'dni', 'notas', 'motivo_perdida', 'grupo_familiar'):
         return getattr(contacto, campo, None)
     # campo personalizado: se busca por slug en datos_extra
-    return (contacto.datos_extra or {}).get(campo)
+    valor = (contacto.datos_extra or {}).get(campo)
+    if isinstance(valor, bool):
+        return 'true' if valor else 'false'
+    return valor
 
 
 def _eval_operador(valor_actual, operador, valor_esperado):
@@ -39,12 +51,13 @@ def _eval_operador(valor_actual, operador, valor_esperado):
         try:
             return float(sval) > float(valor_esperado)
         except (TypeError, ValueError):
-            return False
+            # Fechas en formato ISO (YYYY-MM-DD) comparan correctamente como strings
+            return bool(sval) and bool(valor_esperado) and sval > valor_esperado
     if operador == R.OP_MENOR:
         try:
             return float(sval) < float(valor_esperado)
         except (TypeError, ValueError):
-            return False
+            return bool(sval) and bool(valor_esperado) and sval < valor_esperado
     if operador == R.OP_CONTIENE:
         return valor_esperado.lower() in sval.lower()
     if operador == R.OP_VACIO:
@@ -451,8 +464,20 @@ def _nodo_siguiente(nodo_data, output_key='output_1'):
 
 
 def _evaluar_condicion_nodo(contacto, data):
-    """True/False evaluation for a condition node's config dict."""
-    campo     = data.get('campo', '')
+    """True/False evaluation for a condition node's config dict.
+
+    Soporta el formato nuevo (`data.condiciones`, lista encadenada con Y/O,
+    igual que `ReglaAutomatizacion.condiciones`) y, para flujos guardados
+    antes de esa migración, el formato legacy de una sola condición
+    (`data.campo` / `data.operador` / `data.valor`).
+    """
+    condiciones = data.get('condiciones')
+    if isinstance(condiciones, list):
+        return _evaluar_condiciones(contacto, condiciones)
+
+    campo = data.get('campo', '')
+    if not campo:
+        return True
     operador  = data.get('operador', 'eq')
     valor_esp = data.get('valor', '')
     valor_act = _get_field_value(contacto, campo)

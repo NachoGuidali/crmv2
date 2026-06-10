@@ -27,7 +27,7 @@ def _old_friendly_value(campo_amigable, raw_pk):
     if campo_amigable == 'agente':
         from apps.users.models import User
         user = User.objects.filter(pk=raw_pk).first()
-        return str(user) if user else None
+        return user.display_name if user else None
     return raw_pk
 
 

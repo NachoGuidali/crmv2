@@ -142,12 +142,14 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/drawflow@0.0.59/dist/drawflow.min.js"></script>
+<script src="/static/js/condiciones.js"></script>
 <script>
 // ── Data from Django ──────────────────────────────────────────────────────────
 const STAGES   = {{ stages_json|safe }};
 const AGENTES  = {{ agentes_json|safe }};
 const ETIQUETAS = {{ etiquetas_json|safe }};
-const CAMPOS   = {{ campos_choices_json|safe }};
+const CAMPOS_CONDICION = {{ campos_condicion_json|safe }};
+const OPERADOR_OPTS = ({{ operador_choices_json|safe }}).map(([value, label]) => ({value, label}));
 const FLUJO_GRAFO = {{ flujo_grafo_json|safe }};
 
 // ── Drawflow init ─────────────────────────────────────────────────────────────
@@ -190,7 +192,7 @@ function nodeHtml(tipo, data) {
   const descs  = {
     trigger:   data.label  || 'Inicio del flujo',
     espera:    data.label  || `Esperar ${data.cantidad||1} ${data.unidad||'horas'}`,
-    condicion: data.label  || `Si ${data.campo||'campo'} ${data.operador||'='} ${data.valor||'…'}`,
+    condicion: data.label  || `Si ${condicionesResumen(data)}`,
     accion:    data.label  || (data.accion_tipo ? labelAccion(data.accion_tipo) : 'Configurar…'),
   };
   let extra = '';
@@ -246,11 +248,53 @@ function renderPanel(nodeId) {
   empty.style.display = 'none';
   content.style.display = '';
   content.innerHTML = buildPanelHtml(tipo, data);
+
+  if (tipo === 'condicion') {
+    initCondicionPanel(nodeId, data);
+    return;
+  }
+
   // Live update node description on input changes
   content.querySelectorAll('input, select, textarea').forEach(inp => {
     inp.addEventListener('input', () => savePanel(nodeId));
     inp.addEventListener('change', () => savePanel(nodeId));
   });
+}
+
+function updateNodeDesc(nodeId) {
+  const node = editor.getNodeFromId(nodeId);
+  if (!node) return;
+  const descEl = document.querySelector(`.drawflow-node[id="node-${nodeId}"] #nd-desc`);
+  if (descEl) descEl.textContent = buildNodeDesc(node.name, node.data || {});
+}
+
+/** Inicializa el editor de condiciones múltiples (Y/O) del nodo "Condición". */
+function initCondicionPanel(nodeId, data) {
+  const container = document.getElementById('condicionesContainer');
+  let condiciones = Array.isArray(data.condiciones) ? data.condiciones.map(c => ({...c})) : [];
+  if (!condiciones.length && data.campo) {
+    condiciones = [{campo: data.campo, operador: data.operador || 'eq', valor: data.valor || '', conector: 'Y'}];
+  }
+
+  function persist(next) {
+    condiciones = next;
+    editor.updateNodeDataFromId(nodeId, {condiciones});
+    updateNodeDesc(nodeId);
+  }
+
+  function render() {
+    renderCondicionesEditor(container, condiciones, CAMPOS_CONDICION, OPERADOR_OPTS, persist, {
+      emptyMsg: 'Sin condiciones — la rama "Sí" se cumple siempre.',
+    });
+  }
+
+  document.getElementById('addCondBtn').addEventListener('click', () => {
+    condiciones.push({campo: CAMPOS_CONDICION.length ? CAMPOS_CONDICION[0].value : '', operador: 'eq', valor: '', conector: 'Y'});
+    render();
+    persist(condiciones);
+  });
+
+  render();
 }
 
 function savePanel(nodeId) {
@@ -271,9 +315,35 @@ function savePanel(nodeId) {
 function buildNodeDesc(tipo, d) {
   if (tipo === 'trigger') return d.label || 'Inicio del flujo';
   if (tipo === 'espera')  return `Esperar ${d.cantidad||1} ${d.unidad||'horas'}`;
-  if (tipo === 'condicion') return `Si ${d.campo||'campo'} ${d.operador||'='} "${d.valor||''}"`;
+  if (tipo === 'condicion') return `Si ${condicionesResumen(d)}`;
   if (tipo === 'accion')  return d.accion_tipo ? labelAccion(d.accion_tipo) : 'Configurar…';
   return tipo;
+}
+
+/** Resumen legible de una o varias condiciones encadenadas (campo/operador/valor + Y/O). */
+function condicionesResumen(d) {
+  let conds = Array.isArray(d.condiciones) ? d.condiciones : [];
+  if (!conds.length && d.campo) {
+    conds = [{campo: d.campo, operador: d.operador || 'eq', valor: d.valor || '', conector: 'Y'}];
+  }
+  if (!conds.length) return 'siempre (sin condiciones)';
+  return conds.map((c, i) => {
+    const campoDef = CAMPOS_CONDICION.find(f => f.value === c.campo);
+    const campoLabel = campoDef ? campoDef.label : (c.campo || 'campo');
+    const opLabel = (OPERADOR_OPTS.find(o => o.value === c.operador) || {}).label || c.operador || '=';
+    let txt = `${campoLabel} ${opLabel}`;
+    if (c.operador !== 'empty' && c.operador !== 'not_empty') {
+      let valLabel = c.valor || '';
+      if (campoDef && campoDef.type === 'select') {
+        const opt = (campoDef.options || []).find(o => String(o.v) === String(c.valor));
+        if (opt) valLabel = opt.l;
+      }
+      txt += ` "${valLabel}"`;
+    }
+    if (i === 0) return txt;
+    const conector = conds[i - 1].conector === 'O' ? 'O' : 'Y';
+    return ` ${conector} ${txt}`;
+  }).join('');
 }
 
 function field(key, label, html) {
@@ -305,15 +375,14 @@ function buildPanelHtml(tipo, d) {
     return html;
   }
   if (tipo === 'condicion') {
-    html += field('campo', 'Campo', sel('campo', d.campo||'stage', CAMPOS));
-    html += field('operador', 'Operador', sel('operador', d.operador||'eq', [
-      ['eq','es igual a'],['neq','no es igual a'],['contains','contiene'],
-      ['empty','está vacío'],['not_empty','no está vacío'],
-    ]));
-    html += field('valor', 'Valor', inp('valor', d.valor, 'text', 'Valor esperado'));
+    html += `<div id="condicionesContainer"></div>`;
+    html += `<button type="button" id="addCondBtn" class="btn btn-sm btn-outline-primary mt-1">
+      <i class="bi bi-plus-lg"></i> Agregar condición
+    </button>`;
+    html += `<div class="small text-muted mt-2">Si agregás más de una condición, hacé clic en la etiqueta Y/O entre bloques para alternar cómo se combinan.</div>`;
     html += `<div class="small mt-2">
-      <span style="color:#68d391;">● Salida superior = SÍ (true)</span><br>
-      <span style="color:#fc8181;">● Salida inferior = NO (false)</span>
+      <span style="color:#68d391;">● Salida superior = SÍ (se cumplen las condiciones)</span><br>
+      <span style="color:#fc8181;">● Salida inferior = NO</span>
     </div>`;
     return html;
   }

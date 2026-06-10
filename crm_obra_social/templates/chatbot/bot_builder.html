@@ -354,9 +354,15 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/drawflow/dist/drawflow.min.js"></script>
+<script src="/static/js/condiciones.js"></script>
 <script>
 const FLOW_API_URL = "{% url 'chatbot:flow_api' bot.pk %}";
 const CSRF_TOKEN = "{{ csrf_token }}";
+
+// Registro unificado de campos (incluye personalizados) y operadores,
+// compartido con Reglas/Disparadores/Flujo visual.
+const CAMPOS_CONDICION = {{ campos_condicion_json|safe }};
+const OPERADOR_OPTS = ({{ operador_choices_json|safe }}).map(([value, label]) => ({value, label}));
 
 // ── Node definitions ──────────────────────────────────────────────────
 const NODE_DEFS = {
@@ -398,8 +404,8 @@ function getPreviewText(type, data) {
     case 'ask_question':    return escHtml(data.question || '');
     case 'buttons':         return escHtml(data.body || '') + (data.buttons?.length ? ` [${data.buttons.length} botones]` : '');
     case 'list_options':    return escHtml(data.body || '') + (data.options?.length ? ` [${data.options.length} opciones]` : '');
-    case 'set_condition':   return escHtml(`Si: ${data.variable || '?'} ${data.operator || ''} ${data.value || ''}`);
-    case 'update_attribute':return escHtml(`${data.attribute || '?'} = ${data.value || ''}`);
+    case 'set_condition':   return escHtml(condicionesPreview(data));
+    case 'update_attribute':return escHtml(attributePreview(data));
     case 'set_label':       return escHtml(data.label || '');
     case 'assign_user':     return escHtml(data.user || '');
     case 'assign_team':     return escHtml(data.team || '');
@@ -411,6 +417,45 @@ function getPreviewText(type, data) {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/** Resumen legible de una o varias condiciones encadenadas (campo/operador/valor + Y/O). */
+function condicionesPreview(data) {
+  let conds = Array.isArray(data.condiciones) ? data.condiciones : [];
+  if (!conds.length && data.variable) {
+    conds = [{campo: data.variable, operador: data.operator || 'eq', valor: data.value || '', conector: 'Y'}];
+  }
+  if (!conds.length) return '';
+  return 'Si: ' + conds.map((c, i) => {
+    const campoDef = CAMPOS_CONDICION.find(f => f.value === c.campo);
+    const campoLabel = campoDef ? campoDef.label : (c.campo || '?');
+    const opLabel = (OPERADOR_OPTS.find(o => o.value === c.operador) || {}).label || c.operador || '';
+    let txt = `${campoLabel} ${opLabel}`;
+    if (c.operador !== 'empty' && c.operador !== 'not_empty') {
+      let valLabel = c.valor || '';
+      if (campoDef && campoDef.type === 'select') {
+        const opt = (campoDef.options || []).find(o => String(o.v) === String(c.valor));
+        if (opt) valLabel = opt.l;
+      }
+      txt += ` "${valLabel}"`;
+    }
+    if (i === 0) return txt;
+    const conector = conds[i - 1].conector === 'O' ? 'O' : 'Y';
+    return ` ${conector} ${txt}`;
+  }).join('');
+}
+
+/** Resumen legible de "Actualizar atributo" usando el registro de campos. */
+function attributePreview(data) {
+  if (!data.attribute) return '';
+  const def = CAMPOS_CONDICION.find(f => f.value === data.attribute);
+  const label = def ? def.label : data.attribute;
+  let valLabel = data.value || '';
+  if (def && def.type === 'select') {
+    const opt = (def.options || []).find(o => String(o.v) === String(data.value));
+    if (opt) valLabel = opt.l;
+  }
+  return `${label} = ${valLabel}`;
 }
 
 // ── Drawflow init ─────────────────────────────────────────────────────
@@ -481,6 +526,51 @@ function renderConfigPanel(nodeId) {
 
   const body = document.getElementById('config-body');
   body.innerHTML = buildConfigForm(type, data);
+
+  if (type === 'set_condition') {
+    initConditionPanel(data);
+  } else if (type === 'update_attribute') {
+    initAttributePanel(data);
+  }
+}
+
+// ── Editor de condiciones múltiples (nodo "Condición") ─────────────────
+let currentConditions = [];
+
+function initConditionPanel(data) {
+  currentConditions = Array.isArray(data.condiciones) ? data.condiciones.map(c => ({...c})) : [];
+  if (!currentConditions.length && data.variable) {
+    currentConditions = [{campo: data.variable, operador: data.operator || 'eq', valor: data.value || '', conector: 'Y'}];
+  }
+  const container = document.getElementById('condicionesContainer');
+
+  function render() {
+    renderCondicionesEditor(container, currentConditions, CAMPOS_CONDICION, OPERADOR_OPTS, (next) => {
+      currentConditions = next;
+      markDirty();
+      showSaveStatus('Cambios pendientes…', '#f0ad4e');
+    }, {
+      emptyMsg: 'Sin condiciones — la salida "Sí" se cumple siempre.',
+    });
+  }
+
+  document.getElementById('addCondBtn').addEventListener('click', () => {
+    currentConditions.push({campo: CAMPOS_CONDICION.length ? CAMPOS_CONDICION[0].value : '', operador: 'eq', valor: '', conector: 'Y'});
+    render();
+    markDirty();
+    showSaveStatus('Cambios pendientes…', '#f0ad4e');
+  });
+
+  render();
+}
+
+// ── Selector dinámico de valor (nodo "Actualizar atributo") ────────────
+function initAttributePanel(data) {
+  const attrSel = document.getElementById('ua-attribute');
+  const valueWrap = document.getElementById('ua-value-wrap');
+  attrSel.addEventListener('change', () => {
+    valueWrap.innerHTML = condicionValorControl(CAMPOS_CONDICION, attrSel.value, '', {name: 'value', size: 'sm'});
+  });
 }
 
 function resetConfigPanel() {
@@ -536,22 +626,26 @@ function buildConfigForm(type, data) {
            + buildOptionsEditor('options', data.options || ['','',''], 5, 'Opción');
 
     case 'set_condition':
-      return tf('variable','Variable', data.variable, 'ej: estado_lead')
-           + sel('operator','Operador', data.operator, [
-               {v:'eq',l:'igual a (=)'},{v:'neq',l:'diferente de (≠)'},
-               {v:'contains',l:'contiene'},{v:'starts',l:'empieza con'},
-               {v:'gt',l:'mayor que (>)'},{v:'lt',l:'menor que (<)'},
-             ])
-           + tf('value','Valor', data.value, 'ej: caliente')
-           + `<p class="small text-muted mt-2"><i class="bi bi-info-circle"></i> Salida 1 = Sí | Salida 2 = No</p>`;
+      return `<div id="condicionesContainer"></div>
+        <button type="button" id="addCondBtn" class="btn btn-sm btn-outline-primary mt-1">
+          <i class="bi bi-plus-lg"></i> Agregar condición
+        </button>
+        <p class="small text-muted mt-2">Con varias condiciones, hacé clic en la etiqueta Y/O para alternar cómo se combinan.</p>
+        <p class="small text-muted mt-2"><i class="bi bi-info-circle"></i> Salida 1 (arriba) = Sí | Salida 2 (abajo) = No</p>`;
 
-    case 'update_attribute':
-      return sel('attribute','Atributo', data.attribute, [
-               {v:'nombre',l:'Nombre'},{v:'email',l:'Email'},{v:'telefono',l:'Teléfono'},
-               {v:'estado',l:'Estado lead'},{v:'plan_interes',l:'Plan de interés'},
-               {v:'prioridad',l:'Prioridad'},{v:'nota',l:'Nota'},
-             ])
-           + tf('value','Nuevo valor', data.value, 'ej: interesado');
+    case 'update_attribute': {
+      const attrValue = data.attribute || (CAMPOS_CONDICION[0] ? CAMPOS_CONDICION[0].value : '');
+      return `<div class="config-field">
+          <label>Atributo</label>
+          <select class="form-select form-select-sm" id="ua-attribute" name="attribute">
+            ${condicionCampoOptions(CAMPOS_CONDICION, attrValue, false)}
+          </select>
+        </div>
+        <div class="config-field">
+          <label>Nuevo valor</label>
+          <div id="ua-value-wrap">${condicionValorControl(CAMPOS_CONDICION, attrValue, data.value, {name: 'value', size: 'sm'})}</div>
+        </div>`;
+    }
 
     case 'set_label':
       return tf('label','Nombre de etiqueta', data.label, 'ej: prospecto_caliente');
@@ -615,17 +709,21 @@ document.getElementById('btn-apply').addEventListener('click', () => {
   if (!node) return;
   const type = node.name;
   const body = document.getElementById('config-body');
-  const newData = {};
+  let newData = {};
 
-  body.querySelectorAll('[name]').forEach(el => {
-    if (el.name.endsWith('[]')) {
-      const key = el.name.slice(0, -2);
-      if (!newData[key]) newData[key] = [];
-      if (el.value.trim()) newData[key].push(el.value.trim());
-    } else {
-      newData[el.name] = el.value;
-    }
-  });
+  if (type === 'set_condition') {
+    newData = {condiciones: currentConditions};
+  } else {
+    body.querySelectorAll('[name]').forEach(el => {
+      if (el.name.endsWith('[]')) {
+        const key = el.name.slice(0, -2);
+        if (!newData[key]) newData[key] = [];
+        if (el.value.trim()) newData[key].push(el.value.trim());
+      } else {
+        newData[el.name] = el.value;
+      }
+    });
+  }
 
   editor.updateNodeDataFromId(selectedNodeId, newData);
 

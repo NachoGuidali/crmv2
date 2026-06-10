@@ -88,9 +88,17 @@ class BotBuilderView(LoginRequiredMixin, View):
     template_name = 'chatbot/bot_builder.html'
 
     def get(self, request, pk):
+        from apps.automations.models import ReglaAutomatizacion
+        from apps.automations.views import _condicion_campos
+
         bot = get_object_or_404(ChatBot, pk=pk)
         flow, _ = ChatBotFlow.objects.get_or_create(bot=bot)
-        return render(request, self.template_name, {'bot': bot, 'flow': flow})
+        return render(request, self.template_name, {
+            'bot': bot,
+            'flow': flow,
+            'campos_condicion_json': json.dumps(_condicion_campos(), ensure_ascii=False),
+            'operador_choices_json': json.dumps(ReglaAutomatizacion.OPERADOR_CHOICES, ensure_ascii=False),
+        })
 
 
 class BotFlowAPIView(LoginRequiredMixin, View):
