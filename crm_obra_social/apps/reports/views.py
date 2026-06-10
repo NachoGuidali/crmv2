@@ -172,8 +172,8 @@ class ActividadAgentesView(LoginRequiredMixin, UserPassesTestMixin, View):
             ).count()
             leads_ganados = Contacto.objects.filter(
                 agente=ag, stage__es_ganado=True,
-                historial_etapas__fecha__date__gte=desde,
-                historial_etapas__fecha__date__lte=hasta,
+                historial_etapas__created_at__date__gte=desde,
+                historial_etapas__created_at__date__lte=hasta,
                 historial_etapas__etapa_nueva__es_ganado=True,
             ).distinct().count()
             tareas_completadas = Tarea.objects.filter(
