@@ -57,6 +57,9 @@
   <div class="d-flex gap-2">
     <a href="{% url 'contactos:list' %}{% if tipo_actual %}?tipo={{ tipo_actual.slug }}{% endif %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list"></i> Vista lista</a>
     <a href="{% url 'contactos:create' %}{% if tipo_actual %}?tipo={{ tipo_actual.slug }}{% endif %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Nuevo contacto</a>
+    {% if request.user.can_see_all_leads %}
+    <a href="{% url 'contactos:tipos' %}" class="btn btn-outline-secondary btn-sm" title="Tipos de contacto"><i class="bi bi-tags"></i></a>
+    {% endif %}
   </div>
 </div>
 
@@ -76,8 +79,23 @@
 <div class="card border-0 shadow-sm">
   <div class="card-body text-center text-muted py-5">
     <i class="bi bi-kanban" style="font-size:2rem;"></i>
-    <p class="mt-2">No hay tipos de contacto con un pipeline configurado todavía.</p>
+    <p class="mt-2">No hay tipos de contacto configurados todavía.</p>
     <a href="{% url 'contactos:tipos' %}" class="btn btn-primary btn-sm">Configurar tipos de contacto</a>
+  </div>
+</div>
+{% elif not tipo_actual.pipeline_id %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-bezier2" style="font-size:2rem;"></i>
+    <p class="mt-2">El tipo "{{ tipo_actual.nombre }}" todavía no tiene un pipeline de etapas asignado.</p>
+    {% if request.user.can_see_all_leads %}
+    <div class="d-flex gap-2 justify-content-center">
+      <a href="{% url 'deals:pipeline_list' %}" class="btn btn-primary btn-sm"><i class="bi bi-bezier2"></i> Crear/editar pipelines</a>
+      <a href="{% url 'contactos:tipo_update' tipo_actual.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-tags"></i> Asignar pipeline a "{{ tipo_actual.nombre }}"</a>
+    </div>
+    {% else %}
+    <p class="small">Pedile a un supervisor que configure el pipeline para este tipo de contacto.</p>
+    {% endif %}
   </div>
 </div>
 {% else %}

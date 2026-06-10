@@ -16,6 +16,7 @@
     {% if request.user.can_see_all_leads %}
     <a href="{% url 'contactos:csv_import' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload"></i> <span class="d-none d-sm-inline">Importar</span></a>
     <a href="{% url 'contactos:csv_export' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> Exportar</a>
+    <a href="{% url 'contactos:tipos' %}" class="btn btn-outline-secondary btn-sm" title="Tipos de contacto"><i class="bi bi-tags"></i></a>
     {% endif %}
   </div>
 </div>

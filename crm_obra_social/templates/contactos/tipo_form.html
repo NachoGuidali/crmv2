@@ -40,7 +40,7 @@
           <label class="form-label small fw-semibold">{{ form.pipeline.label }}</label>
           {{ form.pipeline }}
           {% if form.pipeline.errors %}<div class="invalid-feedback d-block">{{ form.pipeline.errors.0 }}</div>{% endif %}
-          <div class="form-text">Define las etapas por las que pasa un contacto de este tipo. Configurá pipelines y etapas desde el panel de administración.</div>
+          <div class="form-text">Define las etapas por las que pasa un contacto de este tipo. <a href="{% url 'deals:pipeline_list' %}" target="_blank">Crear/editar pipelines y etapas</a>.</div>
         </div>
         <div class="col-md-4 d-flex align-items-end pb-1">
           <div class="form-check">

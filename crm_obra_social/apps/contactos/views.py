@@ -293,20 +293,23 @@ class ContactoKanbanView(LoginRequiredMixin, ContactoQuerysetMixin, View):
     template_name = 'contactos/contacto_kanban.html'
 
     def get(self, request):
-        tipos = list(TipoContacto.objects.filter(activo=True, pipeline__isnull=False))
+        tipos = list(TipoContacto.objects.filter(activo=True).select_related('pipeline'))
         if not tipos:
             return render(request, self.template_name, {'tipos': [], 'tipo_actual': None, 'columns': {}})
 
         tipo_slug = request.GET.get('tipo', '').strip()
-        tipo_actual = next((t for t in tipos if t.slug == tipo_slug), None) or tipos[0]
+        tipo_actual = next((t for t in tipos if t.slug == tipo_slug), None)
+        if not tipo_actual:
+            tipo_actual = next((t for t in tipos if t.pipeline_id), tipos[0])
 
-        qs = self.get_base_queryset().filter(tipo=tipo_actual)
         columns = {}
-        for stage in tipo_actual.pipeline.stages.all():
-            columns[stage.pk] = {
-                'stage': stage,
-                'contactos': qs.filter(stage=stage).order_by('-prioridad', '-updated_at')[:50],
-            }
+        if tipo_actual.pipeline_id:
+            qs = self.get_base_queryset().filter(tipo=tipo_actual)
+            for stage in tipo_actual.pipeline.stages.all():
+                columns[stage.pk] = {
+                    'stage': stage,
+                    'contactos': qs.filter(stage=stage).order_by('-prioridad', '-updated_at')[:50],
+                }
         return render(request, self.template_name, {
             'tipos': tipos,
             'tipo_actual': tipo_actual,
@@ -423,7 +426,7 @@ class ContactoDetailView(LoginRequiredMixin, ContactoQuerysetMixin, DetailView):
             ant = h.etapa_anterior.nombre if h.etapa_anterior else '—'
             nvo = h.etapa_nueva.nombre if h.etapa_nueva else '—'
             tl.append({
-                'fecha': h.fecha,
+                'fecha': h.created_at,
                 'icon': 'arrow-right-circle',
                 'color': 'primary',
                 'texto': f'Etapa: {ant} → {nvo}',
