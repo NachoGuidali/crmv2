@@ -168,10 +168,11 @@ class CampoPersonalizadoForm(forms.ModelForm):
 
     class Meta:
         model = CampoPersonalizado
-        fields = ['nombre', 'tipo', 'tipo_contacto', 'requerido', 'orden', 'activo']
+        fields = ['nombre', 'tipo', 'entidad', 'tipo_contacto', 'requerido', 'orden', 'activo']
         widgets = {
             'nombre':        forms.TextInput(attrs={'class': 'form-control'}),
             'tipo':          forms.Select(attrs={'class': 'form-select'}),
+            'entidad':       forms.Select(attrs={'class': 'form-select'}),
             'tipo_contacto': forms.Select(attrs={'class': 'form-select'}),
             'requerido':     forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'orden':         forms.NumberInput(attrs={'class': 'form-control', 'min': 0}),

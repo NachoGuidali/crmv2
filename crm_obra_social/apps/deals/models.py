@@ -15,6 +15,7 @@ class Deal(models.Model):
     agente                = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='deals', verbose_name='Agente responsable')
     descripcion           = models.TextField(blank=True, verbose_name='Descripción / notas')
     fecha_cierre_estimada = models.DateField(null=True, blank=True, verbose_name='Fecha de cierre estimada')
+    datos_extra           = models.JSONField(default=dict, blank=True, verbose_name='Datos adicionales')
     created_at            = models.DateTimeField(auto_now_add=True)
     updated_at            = models.DateTimeField(auto_now=True)
 

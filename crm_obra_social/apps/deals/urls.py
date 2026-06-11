@@ -14,6 +14,7 @@ urlpatterns = [
     path('<int:pk>/editar/',           views.DealUpdateView.as_view(),    name='update'),
     path('<int:pk>/eliminar/',         views.DealDeleteView.as_view(),    name='delete'),
     path('<int:pk>/mover/',            views.DealMoveView.as_view(),      name='move'),
+    path('<int:pk>/campos/',           views.DealUpdateCamposView.as_view(), name='update_campos'),
     # Pipelines
     path('pipelines/',                 views.PipelineListView.as_view(),  name='pipeline_list'),
     path('pipelines/nuevo/',           views.PipelineCreateView.as_view(), name='pipeline_create'),

@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 from decimal import Decimal, InvalidOperation
 
@@ -10,7 +11,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
-from apps.contactos.models import Contacto
+from apps.contactos.models import Contacto, CampoPersonalizado
 from apps.users.models import User
 from .models import Pipeline, PipelineStage, Deal, DealHistory
 
@@ -177,7 +178,69 @@ class DealDetailView(LoginRequiredMixin, View):
             pk=pk,
         )
         historial = deal.history.select_related('stage_anterior', 'stage_nuevo', 'cambiado_por')
-        return render(request, self.template_name, {'deal': deal, 'historial': historial})
+
+        campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(
+            activo=True, entidad=CampoPersonalizado.ENTIDAD_NEGOCIACION
+        ))
+        campos_config = {
+            c.slug: {
+                'obligatorio': c.requerido or any(
+                    r.accion == 'obligatorio' and r.evaluar(deal) for r in c.reglas.all()
+                ),
+                'oculto': any(r.accion == 'oculto' and r.evaluar(deal) for r in c.reglas.all()),
+                'solo_lectura': any(r.accion == 'solo_lectura' and r.evaluar(deal) for r in c.reglas.all()),
+            }
+            for c in campos
+        }
+
+        return render(request, self.template_name, {
+            'deal': deal,
+            'historial': historial,
+            'campos': campos,
+            'campos_config': campos_config,
+            'campos_config_json': json.dumps(campos_config),
+        })
+
+
+class DealUpdateCamposView(LoginRequiredMixin, View):
+    """Save custom field values for a negociación."""
+
+    def post(self, request, pk):
+        deal = get_object_or_404(Deal, pk=pk)
+        campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(
+            activo=True, entidad=CampoPersonalizado.ENTIDAD_NEGOCIACION
+        ))
+        extra = dict(deal.datos_extra or {})
+        errors = []
+
+        for campo in campos:
+            oculto = any(r.accion == 'oculto' and r.evaluar(deal) for r in campo.reglas.all())
+            if oculto:
+                continue
+
+            if campo.tipo == CampoPersonalizado.TIPO_BOOLEANO:
+                extra[campo.slug] = bool(request.POST.get(f'campo_{campo.slug}'))
+            else:
+                val = request.POST.get(f'campo_{campo.slug}', '').strip()
+                obligatorio = campo.requerido or any(
+                    r.accion == 'obligatorio' and r.evaluar(deal) for r in campo.reglas.all()
+                )
+                if obligatorio and not val:
+                    errors.append(f'"{campo.nombre}" es obligatorio.')
+                if val:
+                    extra[campo.slug] = val
+                else:
+                    extra.pop(campo.slug, None)
+
+        if errors:
+            for e in errors:
+                messages.error(request, e)
+            return redirect('deals:detail', pk=pk)
+
+        deal.datos_extra = extra
+        deal.save(update_fields=['datos_extra'])
+        messages.success(request, 'Campos guardados.')
+        return redirect('deals:detail', pk=pk)
 
 
 # ─── Deal move (AJAX Kanban drag & drop) ───────────────────────────────────

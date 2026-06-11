@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load crm_tags %}
 {% block title %}{{ deal.titulo }}{% endblock %}
 {% block nav_deals %}active{% endblock %}
 
@@ -41,9 +42,57 @@
       </div>
     </div>
     {% if deal.descripcion %}
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-transparent fw-semibold">Notas</div>
       <div class="card-body small">{{ deal.descripcion|linebreaksbr }}</div>
+    </div>
+    {% endif %}
+
+    {% if campos %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold">Campos personalizados</div>
+      <div class="card-body">
+        <form method="post" action="{% url 'deals:update_campos' deal.pk %}" id="formCampos">
+          {% csrf_token %}
+          <div class="row g-3" id="camposContainer">
+            {% for campo in campos %}
+            <div class="col-12 campo-wrapper" data-slug="{{ campo.slug }}">
+              <label class="form-label small fw-semibold campo-label">
+                {{ campo.nombre }}
+                {% if campo.requerido %}<span class="text-danger campo-asterisk">*</span>{% endif %}
+                <span class="text-muted fw-normal">({{ campo.get_tipo_display }})</span>
+              </label>
+              {% if campo.tipo == 'lista' %}
+              <select name="campo_{{ campo.slug }}" class="form-select form-select-sm">
+                <option value="">— Sin valor —</option>
+                {% for opcion in campo.opciones %}
+                <option value="{{ opcion }}" {% if deal.datos_extra and deal.datos_extra|dict_key:campo.slug == opcion %}selected{% endif %}>{{ opcion }}</option>
+                {% endfor %}
+              </select>
+              {% elif campo.tipo == 'booleano' %}
+              <div class="form-check mt-1">
+                <input type="checkbox" class="form-check-input" name="campo_{{ campo.slug }}" id="dc_{{ campo.slug }}"
+                  {% if deal.datos_extra and deal.datos_extra|dict_key:campo.slug %}checked{% endif %}>
+                <label class="form-check-label small" for="dc_{{ campo.slug }}">Sí</label>
+              </div>
+              {% elif campo.tipo == 'fecha' %}
+              <input type="date" name="campo_{{ campo.slug }}" class="form-control form-control-sm"
+                value="{{ deal.datos_extra|dict_key:campo.slug|default:'' }}">
+              {% elif campo.tipo == 'numero' %}
+              <input type="number" name="campo_{{ campo.slug }}" class="form-control form-control-sm"
+                value="{{ deal.datos_extra|dict_key:campo.slug|default:'' }}" step="any">
+              {% else %}
+              <input type="text" name="campo_{{ campo.slug }}" class="form-control form-control-sm"
+                value="{{ deal.datos_extra|dict_key:campo.slug|default:'' }}">
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-check-lg"></i> Guardar campos</button>
+          </div>
+        </form>
+      </div>
     </div>
     {% endif %}
   </div>
@@ -70,4 +119,33 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CAMPOS_CONFIG = {{ campos_config_json|default:"{}"|safe }};
+
+(function () {
+  function applyRules() {
+    document.querySelectorAll('#camposContainer .campo-wrapper').forEach(wrapper => {
+      const slug = wrapper.dataset.slug;
+      if (!slug) return;
+      const cfg = CAMPOS_CONFIG[slug] || {};
+      const visible  = !cfg.oculto;
+      const required = !!cfg.obligatorio;
+      const readonly = !!cfg.solo_lectura;
+      wrapper.style.display = visible ? '' : 'none';
+      wrapper.querySelectorAll('input, select, textarea').forEach(inp => {
+        inp.required = visible && required;
+        inp.readOnly = readonly;
+        inp.disabled = !visible;
+        if (readonly) inp.classList.add('bg-light'); else inp.classList.remove('bg-light');
+      });
+      const asterisk = wrapper.querySelector('.campo-asterisk');
+      if (asterisk) asterisk.style.display = (visible && required) ? '' : 'none';
+    });
+  }
+  document.addEventListener('DOMContentLoaded', applyRules);
+})();
+</script>
 {% endblock %}

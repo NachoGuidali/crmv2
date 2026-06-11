@@ -366,7 +366,9 @@ class ContactoDetailView(LoginRequiredMixin, ContactoQuerysetMixin, DetailView):
         ctx['cotizaciones'] = contacto.cotizaciones.order_by('-created_at')[:5]
         ctx['mensajes'] = contacto.mensajes_whatsapp.order_by('-timestamp')[:20]
 
-        campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(activo=True).filter(
+        campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(
+            activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO
+        ).filter(
             Q(tipo_contacto__isnull=True) | Q(tipo_contacto=contacto.tipo)
         ))
         ctx['campos'] = campos
@@ -493,7 +495,9 @@ class ContactoUpdateCamposView(LoginRequiredMixin, ContactoQuerysetMixin, View):
 
     def post(self, request, pk):
         contacto = get_object_or_404(self.get_base_queryset(), pk=pk)
-        campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(activo=True).filter(
+        campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(
+            activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO
+        ).filter(
             Q(tipo_contacto__isnull=True) | Q(tipo_contacto=contacto.tipo)
         ))
         extra = dict(contacto.datos_extra or {})
@@ -722,7 +726,7 @@ class ContactoEtapaChangeView(LoginRequiredMixin, ContactoQuerysetMixin, View):
 
             # Stage gate: verificar campos requeridos antes de avanzar
             campos = list(CampoPersonalizado.objects.prefetch_related('reglas').filter(
-                activo=True
+                activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO
             ).filter(Q(tipo_contacto__isnull=True) | Q(tipo_contacto=contacto.tipo)))
             bloqueantes = []
             for campo in campos:

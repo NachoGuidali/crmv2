@@ -154,7 +154,7 @@ def _condicion_campos():
         {'value': 'fecha_nacimiento', 'label': 'Fecha de nacimiento', 'type': 'date'},
     ]
 
-    for cp in CampoPersonalizado.objects.filter(activo=True).order_by('orden', 'nombre'):
+    for cp in CampoPersonalizado.objects.filter(activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO).order_by('orden', 'nombre'):
         if cp.tipo == CampoPersonalizado.TIPO_LISTA:
             campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'select',
                             'options': [{'v': o, 'l': o} for o in (cp.opciones or [])]})

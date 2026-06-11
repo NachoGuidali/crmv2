@@ -31,8 +31,8 @@ class TipoContactoAdmin(admin.ModelAdmin):
 
 @admin.register(CampoPersonalizado)
 class CampoPersonalizadoAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'tipo', 'tipo_contacto', 'requerido', 'orden', 'activo')
-    list_filter = ('tipo', 'tipo_contacto', 'activo')
+    list_display = ('nombre', 'tipo', 'entidad', 'tipo_contacto', 'requerido', 'orden', 'activo')
+    list_filter = ('entidad', 'tipo', 'tipo_contacto', 'activo')
     readonly_fields = ('slug',)
 
 

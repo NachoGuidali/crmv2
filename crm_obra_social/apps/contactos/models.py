@@ -111,9 +111,20 @@ class CampoPersonalizado(models.Model):
         ('lista',    'Lista de opciones'),
     ]
 
+    ENTIDAD_CONTACTO    = 'contacto'
+    ENTIDAD_NEGOCIACION = 'negociacion'
+    ENTIDAD_CHOICES = [
+        ('contacto',    'Contacto'),
+        ('negociacion', 'Negociación'),
+    ]
+
     nombre        = models.CharField(max_length=100, unique=True, verbose_name='Nombre')
     slug          = models.SlugField(max_length=100, unique=True, verbose_name='Clave interna', editable=False)
     tipo          = models.CharField(max_length=20, choices=TIPO_CHOICES, default=TIPO_TEXTO, verbose_name='Tipo')
+    entidad       = models.CharField(
+        max_length=20, choices=ENTIDAD_CHOICES, default=ENTIDAD_CONTACTO, verbose_name='Tipo de registro',
+        help_text='Define si el campo se gestiona en la ficha de Contactos o de Negociaciones.',
+    )
     tipo_contacto = models.ForeignKey(
         TipoContacto, null=True, blank=True, on_delete=models.CASCADE,
         related_name='campos_personalizados', verbose_name='Aplica a',

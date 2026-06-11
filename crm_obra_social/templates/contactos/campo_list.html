@@ -39,10 +39,12 @@
             </td>
             <td class="small">{{ campo.get_tipo_display }}</td>
             <td class="small">
-              {% if campo.tipo_contacto %}
+              {% if campo.entidad == 'negociacion' %}
+              <span class="badge bg-primary"><i class="bi bi-cash-coin"></i> Negociaciones</span>
+              {% elif campo.tipo_contacto %}
               <span class="badge bg-{{ campo.tipo_contacto.color }}"><i class="bi bi-{{ campo.tipo_contacto.icono|default:'person' }}"></i> {{ campo.tipo_contacto.nombre }}</span>
               {% else %}
-              <span class="badge bg-secondary">Todos los tipos</span>
+              <span class="badge bg-secondary">Todos los contactos</span>
               {% endif %}
             </td>
             <td class="small text-muted">{{ campo.orden }}</td>

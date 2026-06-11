@@ -22,6 +22,11 @@
           {{ form.tipo }}
         </div>
         <div class="col-md-6">
+          <label class="form-label small fw-semibold">{{ form.entidad.label }}</label>
+          {{ form.entidad }}
+          <div class="form-text">{{ form.entidad.help_text }}</div>
+        </div>
+        <div class="col-md-6" id="tipo-contacto-section">
           <label class="form-label small fw-semibold">{{ form.tipo_contacto.label }}</label>
           {{ form.tipo_contacto }}
           <div class="form-text">Dejar en "Todos los tipos" para que aplique a cualquier contacto.</div>
@@ -63,5 +68,13 @@
   }
   tipoSelect.addEventListener('change', toggleOpciones);
   toggleOpciones();
+
+  const entidadSelect = document.getElementById('id_entidad');
+  const tipoContactoSection = document.getElementById('tipo-contacto-section');
+  function toggleTipoContacto() {
+    tipoContactoSection.style.display = entidadSelect.value === 'negociacion' ? 'none' : 'block';
+  }
+  entidadSelect.addEventListener('change', toggleTipoContacto);
+  toggleTipoContacto();
 </script>
 {% endblock %}
