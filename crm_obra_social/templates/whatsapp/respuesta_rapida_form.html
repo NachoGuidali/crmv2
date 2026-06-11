@@ -20,14 +20,14 @@
       {% csrf_token %}
       <div class="mb-3">
         <label class="form-label fw-semibold">Título <span class="text-muted fw-normal">(descriptivo, no visible al cliente)</span></label>
-        <input type="text" name="titulo" value="{{ rr.titulo|default:post.titulo|default:'' }}"
+        <input type="text" name="titulo" value="{{ rr.titulo|default:'' }}"
                class="form-control" required maxlength="100" placeholder="Ej: Saludo inicial">
       </div>
       <div class="mb-3">
         <label class="form-label fw-semibold">Atajo <span class="text-muted fw-normal">(se activa escribiendo /atajo)</span></label>
         <div class="input-group">
           <span class="input-group-text">/</span>
-          <input type="text" name="atajo" value="{{ rr.atajo|default:post.atajo|default:'' }}"
+          <input type="text" name="atajo" value="{{ rr.atajo|default:'' }}"
                  class="form-control" required maxlength="30"
                  pattern="[a-zA-Z0-9_-]+" title="Solo letras, números, guiones y guiones bajos"
                  placeholder="saludo">
@@ -36,7 +36,7 @@
       <div class="mb-3">
         <label class="form-label fw-semibold">Texto del mensaje</label>
         <textarea name="texto" class="form-control" rows="5" required
-                  placeholder="Hola {nombre}, ¿en qué te puedo ayudar hoy?">{{ rr.texto|default:post.texto|default:'' }}</textarea>
+                  placeholder="Hola {nombre}, ¿en qué te puedo ayudar hoy?">{{ rr.texto|default:'' }}</textarea>
         <div class="form-text">Podés usar <code>{nombre}</code> como variable del nombre del contacto.</div>
       </div>
       <div class="mb-3 form-check">

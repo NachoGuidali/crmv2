@@ -1412,13 +1412,15 @@ class RespuestaRapidaCreateView(LoginRequiredMixin, View):
         titulo = request.POST.get('titulo', '').strip()
         atajo  = request.POST.get('atajo', '').strip().lower().replace(' ', '_')
         texto  = request.POST.get('texto', '').strip()
+        activa = request.POST.get('activa') == 'on'
+        rr = RespuestaRapida(titulo=titulo, atajo=atajo, texto=texto, activa=activa)
         if not titulo or not atajo or not texto:
             messages.error(request, 'Título, atajo y texto son obligatorios.')
-            return render(request, self.template_name, {'post': request.POST})
+            return render(request, self.template_name, {'rr': rr})
         if RespuestaRapida.objects.filter(atajo=atajo).exists():
             messages.error(request, f'Ya existe una respuesta con el atajo "/{atajo}".')
-            return render(request, self.template_name, {'post': request.POST})
-        RespuestaRapida.objects.create(titulo=titulo, atajo=atajo, texto=texto, creado_por=request.user)
+            return render(request, self.template_name, {'rr': rr})
+        RespuestaRapida.objects.create(titulo=titulo, atajo=atajo, texto=texto, activa=activa, creado_por=request.user)
         messages.success(request, f'Respuesta rápida "/{atajo}" creada.')
         return redirect('whatsapp:respuestas_rapidas')
 
@@ -1435,6 +1437,7 @@ class RespuestaRapidaUpdateView(LoginRequiredMixin, View):
         rr.titulo = request.POST.get('titulo', '').strip()
         rr.atajo  = request.POST.get('atajo', '').strip().lower().replace(' ', '_')
         rr.texto  = request.POST.get('texto', '').strip()
+        rr.activa = request.POST.get('activa') == 'on'
         if not rr.titulo or not rr.atajo or not rr.texto:
             messages.error(request, 'Título, atajo y texto son obligatorios.')
             return render(request, self.template_name, {'rr': rr})
