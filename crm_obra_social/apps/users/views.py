@@ -165,13 +165,13 @@ class RolCreateView(LoginRequiredMixin, SuperadminRequiredMixin, View):
             return render(request, self.template_name, {
                 'menu_permisos': MENU_PERMISOS, 'rol': None,
                 'error': 'El nombre es obligatorio.',
-                'form_data': request.POST,
+                'selected_permisos': permisos,
             })
         if RolPersonalizado.objects.filter(nombre=nombre).exists():
             return render(request, self.template_name, {
                 'menu_permisos': MENU_PERMISOS, 'rol': None,
                 'error': 'Ya existe un rol con ese nombre.',
-                'form_data': request.POST,
+                'selected_permisos': permisos,
             })
 
         rol = RolPersonalizado.objects.create(nombre=nombre, descripcion=descripcion, permisos=permisos)
