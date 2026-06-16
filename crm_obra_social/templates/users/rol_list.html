@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Roles y permisos{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0"><i class="bi bi-shield-lock me-2 text-primary"></i>Roles y permisos</h4>
+  <a href="{% url 'users:rol_create' %}" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-lg"></i> Nuevo rol
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    {% if roles %}
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Nombre</th>
+          <th>Descripción</th>
+          <th class="text-center">Permisos</th>
+          <th class="text-center">Usuarios</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rol in roles %}
+        <tr>
+          <td class="fw-semibold">{{ rol.nombre }}</td>
+          <td class="text-muted small">{{ rol.descripcion|default:"—" }}</td>
+          <td class="text-center">
+            <span class="badge bg-primary">{{ rol.permisos|length }}</span>
+          </td>
+          <td class="text-center">
+            <span class="badge bg-secondary">{{ rol.num_usuarios }}</span>
+          </td>
+          <td class="text-end">
+            <a href="{% url 'users:rol_update' rol.pk %}" class="btn btn-outline-secondary btn-sm py-0 px-2">
+              <i class="bi bi-pencil"></i>
+            </a>
+            <form method="post" action="{% url 'users:rol_delete' rol.pk %}" class="d-inline"
+                  onsubmit="return confirm('¿Eliminar el rol «{{ rol.nombre }}»?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-shield-lock" style="font-size:2rem;"></i>
+      <p class="mt-2">Todavía no hay roles personalizados.<br>Creá uno para asignarle permisos de menú a tus agentes.</p>
+      <a href="{% url 'users:rol_create' %}" class="btn btn-primary btn-sm">Crear primer rol</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-transparent fw-semibold small">
+    <i class="bi bi-info-circle me-1"></i> ¿Cómo funciona?
+  </div>
+  <div class="card-body small text-muted">
+    <ul class="mb-0 ps-3">
+      <li>Creá roles con un nombre y elegí qué ítems del menú pueden ver.</li>
+      <li>Asigná el rol a un usuario desde <a href="{% url 'users:list' %}">Usuarios</a> → Editar.</li>
+      <li>El campo <strong>Rol personalizado</strong> reemplaza la visibilidad del menú según el rol del sistema (Supervisor / Agente).</li>
+      <li>Los <strong>superadmins</strong> siempre ven todo, independientemente de cualquier rol.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
