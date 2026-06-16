@@ -75,6 +75,7 @@ DATABASES = {
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'crm_password'),
         'HOST': os.environ.get('POSTGRES_HOST', 'db'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
     }
 }
 
@@ -135,6 +136,10 @@ EVOLUTION_API_KEY = os.environ.get('EVOLUTION_API_KEY', '')
 EVOLUTION_INSTANCE_NAME = os.environ.get('EVOLUTION_INSTANCE_NAME', 'crm-supreg')
 EVOLUTION_WEBHOOK_TOKEN = os.environ.get('EVOLUTION_WEBHOOK_TOKEN', '')
 
+# Public base URL of this site, used to build absolute links from contexts without a request
+# (e.g. Celery tasks attaching files to outgoing WhatsApp messages).
+SITE_URL = os.environ.get('SITE_URL', 'https://crm.supregsolutions.com')
+
 # n8n integration — forward incoming WhatsApp messages to this webhook (empty = disabled)
 N8N_WEBHOOK_URL = os.environ.get('N8N_WEBHOOK_URL', '')
 
@@ -144,6 +149,9 @@ CRM_API_KEY = os.environ.get('CRM_API_KEY', '')
 # Pagination
 LEADS_PER_PAGE = 25
 MESSAGES_PER_PAGE = 50
+
+# Retention period (days) for old API/webhook/automation logs, purged weekly by Celery beat.
+LOG_RETENTION_DAYS = int(os.environ.get('LOG_RETENTION_DAYS', '90'))
 
 # Logging
 LOGGING = {
@@ -161,9 +169,11 @@ LOGGING = {
             'formatter': 'verbose',
         },
         'file': {
-            'class': 'logging.FileHandler',
+            'class': 'logging.handlers.RotatingFileHandler',
             'filename': BASE_DIR / 'logs' / 'django.log',
             'formatter': 'verbose',
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB
+            'backupCount': 5,
         },
     },
     'loggers': {

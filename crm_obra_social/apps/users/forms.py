@@ -17,7 +17,7 @@ class LoginForm(AuthenticationForm):
 class UserCreateForm(UserCreationForm):
     class Meta:
         model = User
-        fields = ('username', 'first_name', 'last_name', 'email', 'role', 'phone', 'avatar')
+        fields = ('username', 'first_name', 'last_name', 'email', 'role', 'rol_custom', 'phone', 'avatar')
         widgets = {
             f: forms.TextInput(attrs={'class': 'form-control'})
             for f in ('username', 'first_name', 'last_name', 'email', 'phone')
@@ -26,8 +26,11 @@ class UserCreateForm(UserCreationForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
-            if not isinstance(field.widget, forms.FileInput):
+            if not isinstance(field.widget, (forms.FileInput, forms.Select)):
                 field.widget.attrs.setdefault('class', 'form-control')
+        for name in ('role', 'rol_custom'):
+            if name in self.fields:
+                self.fields[name].widget.attrs.setdefault('class', 'form-select')
 
 
 class UserUpdateForm(UserChangeForm):
@@ -35,13 +38,16 @@ class UserUpdateForm(UserChangeForm):
 
     class Meta:
         model = User
-        fields = ('username', 'first_name', 'last_name', 'email', 'role', 'phone', 'avatar', 'is_active')
+        fields = ('username', 'first_name', 'last_name', 'email', 'role', 'rol_custom', 'phone', 'avatar', 'is_active')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
-            if not isinstance(field.widget, (forms.CheckboxInput, forms.FileInput)):
+            if not isinstance(field.widget, (forms.CheckboxInput, forms.FileInput, forms.Select)):
                 field.widget.attrs.setdefault('class', 'form-control')
+        for name in ('role', 'rol_custom'):
+            if name in self.fields:
+                self.fields[name].widget.attrs.setdefault('class', 'form-select')
 
 
 class ProfileForm(forms.ModelForm):

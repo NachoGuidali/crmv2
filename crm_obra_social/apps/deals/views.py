@@ -17,6 +17,27 @@ from .models import Pipeline, PipelineStage, Deal, DealHistory
 
 logger = logging.getLogger('apps.deals')
 
+PIPELINE_CAMPOS_DISPONIBLES = [
+    ('dni', 'DNI'),
+    ('email', 'Email'),
+    ('telefono', 'Teléfono'),
+    ('fecha_nacimiento', 'Fecha de nacimiento'),
+    ('localidad', 'Localidad'),
+    ('provincia', 'Provincia'),
+    ('grupo_familiar', 'Grupo familiar'),
+    ('origen', 'Origen'),
+    ('plan_interes', 'Plan de interés'),
+    ('agente', 'Agente asignado'),
+    ('prioridad', 'Prioridad'),
+]
+
+
+def _campos_disponibles_ctx():
+    custom = list(CampoPersonalizado.objects.filter(
+        activo=True, entidad='contacto',
+    ).values('slug', 'nombre').order_by('orden', 'nombre'))
+    return {'campos_disponibles': PIPELINE_CAMPOS_DISPONIBLES, 'custom_campos': custom}
+
 
 class SupervisorMixin(UserPassesTestMixin):
     def test_func(self):
@@ -479,7 +500,9 @@ class PipelineCreateView(LoginRequiredMixin, SupervisorMixin, View):
     template_name = 'deals/pipeline_form.html'
 
     def get(self, request):
-        return render(request, self.template_name, {'pipeline': None, 'default_stages': _DEFAULT_STAGES})
+        return render(request, self.template_name, {
+            'pipeline': None, 'default_stages': _DEFAULT_STAGES, **_campos_disponibles_ctx(),
+        })
 
     def post(self, request):
         err, pipeline = _save_pipeline(request.POST, None)
@@ -499,6 +522,7 @@ class PipelineUpdateView(LoginRequiredMixin, SupervisorMixin, View):
         return render(request, self.template_name, {
             'pipeline': pipeline,
             'stages': pipeline.stages.all(),
+            **_campos_disponibles_ctx(),
         })
 
     def post(self, request, pk):
@@ -618,44 +642,50 @@ def _save_pipeline(data, instance):
         return 'El nombre es requerido.', instance
     if instance is None:
         instance = Pipeline()
-    instance.nombre      = nombre
-    instance.descripcion = data.get('descripcion', '').strip()
-    instance.activo      = data.get('activa') == 'on'
+    instance.nombre         = nombre
+    instance.descripcion    = data.get('descripcion', '').strip()
+    instance.activo         = data.get('activa') == 'on'
+    instance.campos_tarjeta = [s for s in data.getlist('pipeline_tarjeta_campo') if s]
     instance.save()
     return None, instance
 
 
 def _save_stages(data, pipeline):
     """Process inline stage form: stage_nombre[], stage_color[], stage_orden[], stage_id[]."""
-    nombres  = data.getlist('stage_nombre')
-    colores  = data.getlist('stage_color')
-    ordenes  = data.getlist('stage_orden')
-    ids      = data.getlist('stage_id')
-    deletes  = {d for d in data.getlist('stage_delete') if d}
+    nombres   = data.getlist('stage_nombre')
+    colores   = data.getlist('stage_color')
+    ordenes   = data.getlist('stage_orden')
+    ids       = data.getlist('stage_id')
+    deletes   = {d for d in data.getlist('stage_delete') if d}
+    reqs_list = data.getlist('stage_campos_requeridos')
 
     kept_ids = set()
     for i, nombre in enumerate(nombres):
         nombre = nombre.strip()
         if not nombre:
             continue
-        stage_id = ids[i] if i < len(ids) else ''
-        color    = colores[i] if i < len(colores) else 'primary'
+        stage_id  = ids[i] if i < len(ids) else ''
+        color     = colores[i] if i < len(colores) else 'primary'
         try:
             orden = int(ordenes[i]) if i < len(ordenes) else i
         except (ValueError, TypeError):
             orden = i
+        raw_reqs = reqs_list[i] if i < len(reqs_list) else ''
+        campos_reqs = [s.strip() for s in raw_reqs.split(',') if s.strip()]
 
         if stage_id and stage_id not in deletes:
             stage = PipelineStage.objects.filter(pk=stage_id, pipeline=pipeline).first()
             if stage:
-                stage.nombre = nombre
-                stage.color  = color
-                stage.orden  = orden
+                stage.nombre           = nombre
+                stage.color            = color
+                stage.orden            = orden
+                stage.campos_requeridos = campos_reqs
                 stage.save()
                 kept_ids.add(stage.pk)
         elif not stage_id:
             stage = PipelineStage.objects.create(
                 pipeline=pipeline, nombre=nombre, color=color, orden=orden,
+                campos_requeridos=campos_reqs,
             )
             kept_ids.add(stage.pk)
 

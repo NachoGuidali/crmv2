@@ -1,5 +1,57 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils.text import slugify
+
+
+MENU_PERMISOS = [
+    ('whatsapp_supervision', 'WA Supervisión'),
+    ('campanas', 'Campañas'),
+    ('plantillas', 'Plantillas WA'),
+    ('bot_whatsapp', 'Bot WhatsApp'),
+    ('respuestas_rapidas', 'Resp. rápidas'),
+    ('chatbot', 'Chatbot Visual'),
+    ('automatizaciones', 'Automatizaciones'),
+    ('flujos', 'Flujos visuales'),
+    ('tipos_contacto', 'Tipos de contacto'),
+    ('etiquetas', 'Etiquetas'),
+    ('campos_personalizados', 'Campos personalizados'),
+    ('integraciones', 'Integraciones API'),
+    ('reportes', 'Reportes'),
+    ('actividad_agentes', 'Actividad agentes'),
+    ('usuarios', 'Gestión de usuarios'),
+    ('config_whatsapp', 'Config. WhatsApp'),
+]
+
+_MENU_PERMISOS_SET = {slug for slug, _ in MENU_PERMISOS}
+
+
+class RolPersonalizado(models.Model):
+    nombre      = models.CharField(max_length=100, unique=True, verbose_name='Nombre')
+    slug        = models.SlugField(max_length=100, unique=True, editable=False)
+    descripcion = models.TextField(blank=True, verbose_name='Descripción')
+    permisos    = models.JSONField(
+        default=list, blank=True, verbose_name='Permisos de menú',
+        help_text='Slugs de ítems del menú a los que este rol tiene acceso.',
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = 'Rol personalizado'
+        verbose_name_plural = 'Roles personalizados'
+
+    def __str__(self):
+        return self.nombre
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.nombre)
+            slug, n = base, 1
+            while RolPersonalizado.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f'{base}-{n}'
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
 
 class User(AbstractUser):
@@ -13,6 +65,11 @@ class User(AbstractUser):
     ]
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_AGENTE)
+    rol_custom = models.ForeignKey(
+        RolPersonalizado, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='usuarios', verbose_name='Rol personalizado',
+        help_text='Controla qué ítems del menú puede ver el usuario. Si está vacío, se usa el rol del sistema.',
+    )
     phone = models.CharField(max_length=30, blank=True, verbose_name='Teléfono interno')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True, verbose_name='Foto')
     is_active = models.BooleanField(default=True)
@@ -48,6 +105,18 @@ class User(AbstractUser):
     @property
     def display_name(self):
         return self.get_full_name() or self.username
+
+    def get_rol_display(self):
+        if self.rol_custom_id:
+            return self.rol_custom.nombre
+        return self.get_role_display()
+
+    def can_ver_menu(self, slug):
+        if self.is_superadmin:
+            return True
+        if self.rol_custom_id:
+            return slug in (self.rol_custom.permisos or [])
+        return self.can_see_all_leads
 
 
 class NotificacionInterna(models.Model):

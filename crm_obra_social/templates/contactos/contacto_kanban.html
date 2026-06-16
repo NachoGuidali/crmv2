@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load crm_tags %}
 {% block title %}Kanban — {{ tipo_actual.nombre_plural|default:"Contactos" }}{% endblock %}
 {% block nav_kanban %}active{% endblock %}
 
@@ -118,6 +119,9 @@
           {% if contacto.plan_interes %}
           <div class="text-muted" style="font-size:.78rem;">{{ contacto.plan_interes }}</div>
           {% endif %}
+          {% for campo in campos_tarjeta %}{% with val=contacto|campo_display:campo.slug %}{% if val %}
+          <div class="text-muted" style="font-size:.78rem;"><span style="opacity:.6;">{{ campo.label }}:</span> {{ val }}</div>
+          {% endif %}{% endwith %}{% endfor %}
           <div class="mt-1">
             <span class="badge bg-{{ contacto.get_prioridad_badge_class }}" style="font-size:.7rem;">{{ contacto.get_prioridad_display }}</span>
             {% if contacto.agente %}

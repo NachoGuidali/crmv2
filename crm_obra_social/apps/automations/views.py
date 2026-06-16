@@ -171,29 +171,76 @@ def _condicion_campos():
     return campos
 
 
+def _campo_fecha_choices():
+    """Build dynamic list of date fields (standard + custom) for the automation date trigger."""
+    choices = list(ReglaAutomatizacion.CAMPO_FECHA_BASE)
+    for cp in CampoPersonalizado.objects.filter(
+        activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO, tipo=CampoPersonalizado.TIPO_FECHA,
+    ).order_by('orden', 'nombre'):
+        choices.append((cp.slug, f'{cp.nombre} (personalizado)'))
+    return choices
+
+
+def _campos_accion():
+    """Fields available for the 'cambiar campo' action — writable contact fields."""
+    from apps.contactos.models import Contacto
+    campos = [
+        {'value': 'prioridad', 'label': 'Prioridad', 'type': 'select',
+         'options': [{'v': v, 'l': l} for v, l in Contacto.PRIORIDAD_CHOICES]},
+        {'value': 'origen', 'label': 'Origen', 'type': 'select',
+         'options': [{'v': v, 'l': l} for v, l in Contacto.ORIGEN_CHOICES]},
+        {'value': 'nombre_completo', 'label': 'Nombre completo', 'type': 'text'},
+        {'value': 'email', 'label': 'Email', 'type': 'text'},
+        {'value': 'localidad', 'label': 'Localidad', 'type': 'text'},
+        {'value': 'provincia', 'label': 'Provincia', 'type': 'text'},
+        {'value': 'notas', 'label': 'Notas', 'type': 'text'},
+        {'value': 'grupo_familiar', 'label': 'Grupo familiar', 'type': 'number'},
+    ]
+    for cp in CampoPersonalizado.objects.filter(
+        activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO,
+    ).exclude(tipo=CampoPersonalizado.TIPO_ARCHIVO).order_by('orden', 'nombre'):
+        if cp.tipo == CampoPersonalizado.TIPO_LISTA:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'select',
+                           'options': [{'v': o, 'l': o} for o in (cp.opciones or [])]})
+        elif cp.tipo == CampoPersonalizado.TIPO_BOOLEANO:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'select',
+                           'options': [{'v': 'true', 'l': 'Sí'}, {'v': 'false', 'l': 'No'}]})
+        elif cp.tipo == CampoPersonalizado.TIPO_NUMERO:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'number'})
+        elif cp.tipo == CampoPersonalizado.TIPO_FECHA:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'date'})
+        else:
+            campos.append({'value': cp.slug, 'label': cp.nombre, 'type': 'text'})
+    return campos
+
+
 def _form_ctx(data=None, instance=None):
-    from apps.contactos.models import Contacto, TipoContacto, PipelineStage
+    from apps.contactos.models import Contacto, TipoContacto, PipelineStage, Pipeline
     from apps.users.models import User
     R = ReglaAutomatizacion
+    condicion_campos = _condicion_campos()
     ctx = {
         'instance': instance,
         'data': data or {},
         'modo_choices': R.MODO_CHOICES,
         'tiempo_choices': R.TIEMPO_CHOICES,
         'unidad_choices': R.UNIDAD_CHOICES,
-        'campo_fecha_choices': R.CAMPO_FECHA_CHOICES,
+        'campo_fecha_choices': _campo_fecha_choices(),
         'evento_choices': R.EVENTO_CHOICES,
         'operador_choices': R.OPERADOR_CHOICES,
         'conector_choices': R.CONECTOR_CHOICES,
         'accion_choices': R.ACCION_CHOICES,
+        'entidad_choices': R.ENTIDAD_CHOICES,
         'prioridad_choices': Contacto.PRIORIDAD_CHOICES,
         'origen_choices': Contacto.ORIGEN_CHOICES,
         'tipos_contacto': TipoContacto.objects.filter(activo=True).order_by('nombre'),
+        'pipelines': Pipeline.objects.order_by('nombre'),
         'stages': PipelineStage.objects.select_related('pipeline').order_by('pipeline__nombre', 'orden'),
         'plantillas': PlantillaHSM.objects.filter(activa=True),
         'agentes': User.objects.filter(is_active=True).order_by('first_name', 'last_name'),
         'condiciones_json': json.dumps(instance.condiciones if instance else [], ensure_ascii=False),
-        'campos_condicion_json': json.dumps(_condicion_campos(), ensure_ascii=False),
+        'campos_condicion_json': json.dumps(condicion_campos, ensure_ascii=False),
+        'campos_accion_json': json.dumps(_campos_accion(), ensure_ascii=False),
     }
     return ctx
 
@@ -232,9 +279,20 @@ def _save_regla(data, instance):
     instance.activa = data.get('activa') == 'on'
     instance.orden = int(data.get('orden', 0) or 0)
     instance.modo = modo
+    instance.entidad = data.get('entidad', R.ENTIDAD_CONTACTO)
+    if instance.entidad not in dict(R.ENTIDAD_CHOICES):
+        instance.entidad = R.ENTIDAD_CONTACTO
 
     tipo_contacto_id = data.get('tipo_contacto')
     instance.tipo_contacto = TipoContacto.objects.filter(pk=tipo_contacto_id).first() if tipo_contacto_id else None
+
+    from apps.contactos.models import Pipeline
+    entidad_pipeline_id = data.get('entidad_pipeline')
+    instance.entidad_pipeline = Pipeline.objects.filter(pk=entidad_pipeline_id).first() if entidad_pipeline_id else None
+    filtro_pipeline_id = data.get('filtro_pipeline')
+    instance.filtro_pipeline = Pipeline.objects.filter(pk=filtro_pipeline_id).first() if filtro_pipeline_id else None
+    filtro_etapa_id = data.get('filtro_etapa')
+    instance.filtro_etapa = PipelineStage.objects.filter(pk=filtro_etapa_id).first() if filtro_etapa_id else None
 
     # --- Tiempo de ejecución (modo automatización) ---
     instance.tiempo_tipo = data.get('tiempo_tipo', R.TIEMPO_INSTANTANEO)

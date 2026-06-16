@@ -4,8 +4,14 @@
 
 {% block extra_css %}
 <style>
-.stage-row { background: #f8f9fa; border-radius: 6px; padding: 10px; margin-bottom: 6px; }
+.stage-row { background: var(--bg2,#f8f9fa); border: 1px solid var(--border,#dee2e6); border-radius: 6px; padding: 10px; margin-bottom: 6px; }
 .stage-row.deleted { opacity: .4; }
+.gate-section { border-top: 1px solid var(--border,#dee2e6); margin-top: 8px; padding-top: 8px; }
+.gate-toggle { font-size:.75rem; color: var(--bs-secondary); cursor:pointer; user-select:none; }
+.gate-toggle:hover { color: var(--bs-primary); }
+.gate-checks { display:none; margin-top:6px; }
+.gate-checks.open { display:flex; flex-wrap:wrap; gap:4px 16px; }
+.gate-check-label { font-size:.78rem; display:flex; align-items:center; gap:4px; white-space:nowrap; }
 </style>
 {% endblock %}
 
@@ -18,8 +24,9 @@
 <form method="post" id="pipelineForm">
   {% csrf_token %}
   <div class="row g-4">
-    <div class="col-12 col-lg-7">
+    <div class="col-12 col-lg-8">
 
+      {# ── Datos del pipeline ── #}
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-transparent fw-semibold">Datos del pipeline</div>
         <div class="card-body">
@@ -39,6 +46,7 @@
         </div>
       </div>
 
+      {# ── Etapas ── #}
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-transparent fw-semibold d-flex justify-content-between align-items-center">
           Etapas
@@ -53,6 +61,7 @@
               <div class="stage-row" id="stage-row-{{ s.pk }}">
                 <input type="hidden" name="stage_id" value="{{ s.pk }}">
                 <input type="hidden" name="stage_delete" value="" class="delete-flag">
+                <input type="hidden" name="stage_campos_requeridos" class="stage-reqs-hidden" value="{{ s.campos_requeridos|join:',' }}">
                 <div class="row g-2 align-items-center">
                   <div class="col-5">
                     <input type="text" name="stage_nombre" class="form-control form-control-sm" value="{{ s.nombre }}" placeholder="Nombre etapa" required>
@@ -73,14 +82,39 @@
                     </button>
                   </div>
                 </div>
+                {# Campos requeridos por etapa #}
+                <div class="gate-section">
+                  <span class="gate-toggle" onclick="toggleGate(this)">
+                    <i class="bi bi-lock-fill me-1" style="font-size:.7rem;"></i>
+                    Campos requeridos para entrar
+                    {% if s.campos_requeridos %}<span class="badge bg-warning text-dark ms-1" style="font-size:.65rem;">{{ s.campos_requeridos|length }}</span>{% endif %}
+                    <i class="bi bi-chevron-down ms-1" style="font-size:.65rem;"></i>
+                  </span>
+                  <div class="gate-checks">
+                    {% for slug, label in campos_disponibles %}
+                    <label class="gate-check-label">
+                      <input type="checkbox" class="gate-check form-check-input" value="{{ slug }}"
+                        {% if slug in s.campos_requeridos %}checked{% endif %}>
+                      {{ label }}
+                    </label>
+                    {% endfor %}
+                    {% for c in custom_campos %}
+                    <label class="gate-check-label">
+                      <input type="checkbox" class="gate-check form-check-input" value="{{ c.slug }}"
+                        {% if c.slug in s.campos_requeridos %}checked{% endif %}>
+                      {{ c.nombre }} <span class="text-muted">(personalizado)</span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
               </div>
               {% endfor %}
             {% else %}
-              <!-- Default stages for new pipeline -->
               {% for nombre, color in default_stages %}
               <div class="stage-row">
                 <input type="hidden" name="stage_id" value="">
                 <input type="hidden" name="stage_delete" value="">
+                <input type="hidden" name="stage_campos_requeridos" class="stage-reqs-hidden" value="">
                 <div class="row g-2 align-items-center">
                   <div class="col-5">
                     <input type="text" name="stage_nombre" class="form-control form-control-sm" value="{{ nombre }}" placeholder="Nombre etapa">
@@ -104,11 +138,57 @@
                     </button>
                   </div>
                 </div>
+                <div class="gate-section">
+                  <span class="gate-toggle" onclick="toggleGate(this)">
+                    <i class="bi bi-lock-fill me-1" style="font-size:.7rem;"></i>
+                    Campos requeridos para entrar
+                    <i class="bi bi-chevron-down ms-1" style="font-size:.65rem;"></i>
+                  </span>
+                  <div class="gate-checks">
+                    {% for slug, label in campos_disponibles %}
+                    <label class="gate-check-label">
+                      <input type="checkbox" class="gate-check form-check-input" value="{{ slug }}"> {{ label }}
+                    </label>
+                    {% endfor %}
+                    {% for c in custom_campos %}
+                    <label class="gate-check-label">
+                      <input type="checkbox" class="gate-check form-check-input" value="{{ c.slug }}">
+                      {{ c.nombre }} <span class="text-muted">(personalizado)</span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </div>
               </div>
               {% endfor %}
             {% endif %}
           </div>
           <p class="text-muted small mt-2 mb-0"><i class="bi bi-info-circle"></i> Las etapas con negociaciones no se pueden eliminar.</p>
+        </div>
+      </div>
+
+      {# ── Campos de visualización rápida en tarjeta kanban ── #}
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-transparent fw-semibold">
+          <i class="bi bi-kanban me-1"></i> Campos en tarjeta kanban
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">Elegí qué campos adicionales se muestran en cada tarjeta del kanban. El nombre y el teléfono siempre se muestran.</p>
+          <div class="d-flex flex-wrap gap-x-4 gap-y-2" style="gap: 4px 20px;">
+            {% for slug, label in campos_disponibles %}
+            <label class="gate-check-label">
+              <input type="checkbox" class="form-check-input" name="pipeline_tarjeta_campo" value="{{ slug }}"
+                {% if pipeline and slug in pipeline.campos_tarjeta %}checked{% endif %}>
+              {{ label }}
+            </label>
+            {% endfor %}
+            {% for c in custom_campos %}
+            <label class="gate-check-label">
+              <input type="checkbox" class="form-check-input" name="pipeline_tarjeta_campo" value="{{ c.slug }}"
+                {% if pipeline and c.slug in pipeline.campos_tarjeta %}checked{% endif %}>
+              {{ c.nombre }} <span class="text-muted">(personalizado)</span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
       </div>
 
@@ -133,6 +213,15 @@ const COLOR_OPTIONS = `
   <option value="dark">Oscuro</option>
 `;
 
+const GATE_CHECKS_HTML = `{% for slug, label in campos_disponibles %}<label class="gate-check-label"><input type="checkbox" class="gate-check form-check-input" value="{{ slug }}"> {{ label }}</label>{% endfor %}{% for c in custom_campos %}<label class="gate-check-label"><input type="checkbox" class="gate-check form-check-input" value="{{ c.slug }}"> {{ c.nombre }} <span class="text-muted">(personalizado)</span></label>{% endfor %}`;
+
+function toggleGate(el) {
+  const checks = el.nextElementSibling;
+  checks.classList.toggle('open');
+  const icon = el.querySelector('.bi-chevron-down,.bi-chevron-up');
+  if (icon) icon.className = icon.className.replace(checks.classList.contains('open') ? 'chevron-down' : 'chevron-up', checks.classList.contains('open') ? 'chevron-up' : 'chevron-down');
+}
+
 let rowIndex = 1000;
 document.getElementById('addStageBtn').addEventListener('click', () => {
   const row = document.createElement('div');
@@ -140,32 +229,47 @@ document.getElementById('addStageBtn').addEventListener('click', () => {
   row.innerHTML = `
     <input type="hidden" name="stage_id" value="">
     <input type="hidden" name="stage_delete" value="">
+    <input type="hidden" name="stage_campos_requeridos" class="stage-reqs-hidden" value="">
     <div class="row g-2 align-items-center">
       <div class="col-5"><input type="text" name="stage_nombre" class="form-control form-control-sm" placeholder="Nombre etapa" required></div>
       <div class="col-3"><select name="stage_color" class="form-select form-select-sm">${COLOR_OPTIONS}</select></div>
       <div class="col-2"><input type="number" name="stage_orden" class="form-control form-control-sm" value="${rowIndex++}" min="0"></div>
       <div class="col-2 text-end"><button type="button" class="btn btn-sm btn-outline-danger py-0 delete-new-stage"><i class="bi bi-trash"></i></button></div>
+    </div>
+    <div class="gate-section">
+      <span class="gate-toggle" onclick="toggleGate(this)">
+        <i class="bi bi-lock-fill me-1" style="font-size:.7rem;"></i>
+        Campos requeridos para entrar
+        <i class="bi bi-chevron-down ms-1" style="font-size:.65rem;"></i>
+      </span>
+      <div class="gate-checks">${GATE_CHECKS_HTML}</div>
     </div>`;
   document.getElementById('stagesContainer').appendChild(row);
   row.querySelector('.delete-new-stage').addEventListener('click', () => row.remove());
 });
 
-// Remove new stage rows
 document.querySelectorAll('.delete-new-stage').forEach(btn => {
   btn.addEventListener('click', () => btn.closest('.stage-row').remove());
 });
 
-// Mark existing stages for deletion
 document.querySelectorAll('.delete-stage-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const row = btn.closest('.stage-row');
     const flag = row.querySelector('.delete-flag');
-    const id = btn.dataset.id;
     flag.name = 'stage_delete';
-    flag.value = id;
+    flag.value = btn.dataset.id;
     row.classList.add('deleted');
     row.querySelectorAll('input, select').forEach(el => el.disabled = true);
     btn.disabled = true;
+  });
+});
+
+// Before submit: collect gate checkboxes per stage row into their hidden input
+document.getElementById('pipelineForm').addEventListener('submit', () => {
+  document.querySelectorAll('#stagesContainer .stage-row:not(.deleted)').forEach(row => {
+    const hidden = row.querySelector('.stage-reqs-hidden');
+    const checked = [...row.querySelectorAll('.gate-check:checked')].map(cb => cb.value);
+    if (hidden) hidden.value = checked.join(',');
   });
 });
 </script>

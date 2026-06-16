@@ -79,12 +79,15 @@ def contacto_post_save(sender, instance, created, **kwargs):
 
     # Trigger visual flujos — solo en creación (cambio de etapa se dispara desde la view)
     if created and not getattr(instance, '_skip_automation', False):
-        try:
-            from apps.automations.tasks import iniciar_flujos_para_contacto
-            from apps.automations.models import Flujo
-            iniciar_flujos_para_contacto(instance, Flujo.TRIGGER_LEAD_CREADO)
-        except Exception as e:
-            logger.error('Error disparando flujos: %s', e)
+        from django.db import transaction
+        from apps.automations.tasks import iniciar_flujos_para_contacto_task, _safe_delay
+        from apps.automations.models import Flujo
+
+        contacto_pk = instance.pk
+        transaction.on_commit(
+            lambda: _safe_delay(iniciar_flujos_para_contacto_task,
+                                 contacto_id=contacto_pk, evento=Flujo.TRIGGER_LEAD_CREADO)
+        )
 
 
 @receiver(post_save, sender='contactos.NotaContacto')

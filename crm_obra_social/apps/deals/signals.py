@@ -40,13 +40,15 @@ def deal_post_save(sender, instance, created, **kwargs):
 
     # Fire automations for the linked contacto (if any)
     if instance.contacto_id:
-        try:
-            from apps.automations.tasks import disparar_evento
-            disparar_evento(
-                contacto_id=instance.contacto_id,
-                evento_tipo='deal_stage',
-                valor_anterior=old_stage.nombre if old_stage else str(old_stage_id),
-                valor_nuevo=instance.stage.nombre,
+        from django.db import transaction
+        from apps.automations.tasks import disparar_evento_task, _safe_delay
+
+        contacto_id = instance.contacto_id
+        valor_anterior = old_stage.nombre if old_stage else str(old_stage_id)
+        valor_nuevo = instance.stage.nombre
+        transaction.on_commit(
+            lambda: _safe_delay(
+                disparar_evento_task, contacto_id=contacto_id, evento_tipo='deal_stage',
+                valor_anterior=valor_anterior, valor_nuevo=valor_nuevo,
             )
-        except Exception as e:
-            logger.error('Error disparando automatización por deal stage: %s', e)
+        )

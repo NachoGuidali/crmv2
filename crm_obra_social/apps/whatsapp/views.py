@@ -16,7 +16,13 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.users.models import User
 from .models import Conversacion, Mensaje, PlantillaHSM, ConfiguracionWhatsApp, RespuestaRapida
-from .tasks import process_incoming_message, send_whatsapp_message_task
+from .tasks import (
+    process_incoming_message,
+    send_whatsapp_message_task,
+    send_whatsapp_template_task,
+    send_whatsapp_interactive_task,
+    forward_to_n8n_task,
+)
 from .webhook import parse_incoming_webhook, verify_webhook_token
 
 logger = logging.getLogger('apps.whatsapp')
@@ -40,54 +46,6 @@ def _visible_convs_qs(user, include_archived=False):
     return qs
 
 
-def _forward_to_n8n(payload: dict):
-    """Forward Evolution API webhook payload to n8n with convenience fields added."""
-    import threading
-    import requests as req
-    from django.conf import settings as dj_settings
-
-    url = getattr(dj_settings, 'N8N_WEBHOOK_URL', '')
-    if not url:
-        return
-
-    # Extract phone and message content for easy use in n8n
-    data = payload.get('data', {}) if isinstance(payload.get('data'), dict) else {}
-    jid = data.get('key', {}).get('remoteJid', '')
-    phone = ('+' + jid.split('@')[0]) if jid and '@' in jid else ''
-    msg = data.get('message', {})
-    content = (
-        msg.get('conversation', '')
-        or msg.get('extendedTextMessage', {}).get('text', '')
-        or data.get('messageType', '')
-    )
-
-    # Include bot status so n8n can decide whether to respond
-    bot_n8n_activo = True
-    if phone:
-        from utils.phone import normalize_ar_phone, ar_phone_variants
-        norm = normalize_ar_phone(phone)
-        conv = Conversacion.objects.filter(telefono__in=ar_phone_variants(norm)).first()
-        if conv is not None:
-            bot_n8n_activo = conv.bot_n8n_activo
-
-    enriched = {
-        **payload,
-        'phone': phone,
-        'message': content,
-        'contact_name': data.get('pushName', ''),
-        'bot_n8n_activo': bot_n8n_activo,
-    }
-
-    def _send():
-        try:
-            req.post(url, json=enriched, timeout=10)
-            logger.info('n8n webhook forwarded: event=%s phone=%s', payload.get('event', ''), phone)
-        except Exception as e:
-            logger.warning('n8n forward failed: %s', e)
-
-    threading.Thread(target=_send, daemon=True).start()
-
-
 @method_decorator(csrf_exempt, name='dispatch')
 class WebhookView(View):
     def get(self, request):
@@ -105,8 +63,8 @@ class WebhookView(View):
             payload = json.loads(request.body)
             logger.info('Webhook received event: %s', payload.get('event', 'unknown'))
 
-            # Forward raw payload to n8n immediately (non-blocking)
-            _forward_to_n8n(payload)
+            # Forward raw payload to n8n asynchronously
+            forward_to_n8n_task.delay(payload)
 
             messages_data = parse_incoming_webhook(payload)
             for msg_data in messages_data:
@@ -214,7 +172,6 @@ class InboxView(LoginRequiredMixin, View):
                 Conversacion.objects.filter(pk=conv.pk).update(ultimo_mensaje_at=timezone.now())
 
         elif action == 'send_template':
-            from .sender import send_text_message
             plantilla_id = request.POST.get('plantilla_id')
             if not plantilla_id:
                 messages.error(request, 'Seleccioná una plantilla.')
@@ -222,19 +179,15 @@ class InboxView(LoginRequiredMixin, View):
                 plantilla = get_object_or_404(PlantillaHSM, pk=plantilla_id)
                 variables_vals = [request.POST.get(f'var_{i + 1}', '') for i in range(len(plantilla.variables or []))]
                 text = plantilla.preview(variables_vals if any(variables_vals) else None)
-                try:
-                    result = send_text_message(conv.telefono, text)
-                    wam_id = result.get('id', '')
-                    Mensaje.objects.create(
-                        conversacion=conv, contacto=conv.contacto,
-                        direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_PLANTILLA,
-                        contenido=text, whatsapp_message_id=wam_id,
-                        status=Mensaje.STATUS_ENVIADO, enviado_por=request.user, timestamp=timezone.now(),
-                    )
-                    Conversacion.objects.filter(pk=conv.pk).update(ultimo_mensaje_at=timezone.now())
-                    messages.success(request, 'Plantilla enviada.')
-                except Exception as e:
-                    messages.error(request, f'Error al enviar la plantilla: {e}')
+                msg = Mensaje.objects.create(
+                    conversacion=conv, contacto=conv.contacto,
+                    direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_PLANTILLA,
+                    contenido=text, status=Mensaje.STATUS_PENDIENTE,
+                    enviado_por=request.user, timestamp=timezone.now(),
+                )
+                send_whatsapp_template_task.delay(msg.pk)
+                Conversacion.objects.filter(pk=conv.pk).update(ultimo_mensaje_at=timezone.now())
+                messages.success(request, 'Plantilla en cola de envío.')
 
         elif action == 'send_interactive':
             body_text = request.POST.get('interactive_body', '').strip()
@@ -243,25 +196,19 @@ class InboxView(LoginRequiredMixin, View):
                 messages.error(request, 'El cuerpo y al menos un botón son requeridos.')
             else:
                 buttons = [{'id': f'btn_{i}', 'title': title} for i, title in enumerate(btn_titles[:3])]
-                from .sender import send_interactive_message
-                try:
-                    result = send_interactive_message(
-                        conv.telefono, body_text, buttons,
-                        request.POST.get('interactive_header', '').strip(),
-                        request.POST.get('interactive_footer', '').strip(),
-                    )
-                    wam_id = result.get('id', '')
-                    Mensaje.objects.create(
-                        conversacion=conv, contacto=conv.contacto,
-                        direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_INTERACTIVO,
-                        contenido=body_text + '\n' + ' | '.join(f'[{b["title"]}]' for b in buttons),
-                        whatsapp_message_id=wam_id, status=Mensaje.STATUS_ENVIADO,
-                        enviado_por=request.user, timestamp=timezone.now(),
-                    )
-                    Conversacion.objects.filter(pk=conv.pk).update(ultimo_mensaje_at=timezone.now())
-                    messages.success(request, 'Mensaje con botones enviado.')
-                except Exception as e:
-                    messages.error(request, f'Error al enviar: {e}')
+                header_text = request.POST.get('interactive_header', '').strip()
+                footer_text = request.POST.get('interactive_footer', '').strip()
+                btn_display = ' | '.join(f'[{b["title"]}]' for b in buttons)
+                msg = Mensaje.objects.create(
+                    conversacion=conv, contacto=conv.contacto,
+                    direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_INTERACTIVO,
+                    contenido=body_text + '\n' + btn_display,
+                    status=Mensaje.STATUS_PENDIENTE,
+                    enviado_por=request.user, timestamp=timezone.now(),
+                )
+                send_whatsapp_interactive_task.delay(msg.pk, body_text, buttons, header_text, footer_text)
+                Conversacion.objects.filter(pk=conv.pk).update(ultimo_mensaje_at=timezone.now())
+                messages.success(request, 'Mensaje con botones en cola de envío.')
 
         elif action == 'assign_agent' and request.user.can_see_all_leads:
             agente_id = request.POST.get('agente_id')
@@ -326,7 +273,6 @@ class ConversacionDetailView(LoginRequiredMixin, View):
             Conversacion.objects.filter(pk=pk).update(ultimo_mensaje_at=timezone.now())
 
         elif action == 'send_template':
-            from .sender import send_text_message
             plantilla_id = request.POST.get('plantilla_id')
             if not plantilla_id:
                 messages.error(request, 'Seleccioná una plantilla.')
@@ -337,19 +283,15 @@ class ConversacionDetailView(LoginRequiredMixin, View):
                 for i in range(len(plantilla.variables or []))
             ]
             text = plantilla.preview(variables_vals if any(variables_vals) else None)
-            try:
-                result = send_text_message(conv.telefono, text)
-                wam_id = result.get('id', '')
-                Mensaje.objects.create(
-                    conversacion=conv, contacto=conv.contacto,
-                    direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_PLANTILLA,
-                    contenido=text, whatsapp_message_id=wam_id,
-                    status=Mensaje.STATUS_ENVIADO, enviado_por=request.user, timestamp=timezone.now(),
-                )
-                Conversacion.objects.filter(pk=pk).update(ultimo_mensaje_at=timezone.now())
-                messages.success(request, 'Plantilla enviada.')
-            except Exception as e:
-                messages.error(request, f'Error al enviar la plantilla: {e}')
+            msg = Mensaje.objects.create(
+                conversacion=conv, contacto=conv.contacto,
+                direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_PLANTILLA,
+                contenido=text, status=Mensaje.STATUS_PENDIENTE,
+                enviado_por=request.user, timestamp=timezone.now(),
+            )
+            send_whatsapp_template_task.delay(msg.pk)
+            Conversacion.objects.filter(pk=pk).update(ultimo_mensaje_at=timezone.now())
+            messages.success(request, 'Plantilla en cola de envío.')
 
         elif action == 'send_interactive':
             body_text = request.POST.get('interactive_body', '').strip()
@@ -360,22 +302,17 @@ class ConversacionDetailView(LoginRequiredMixin, View):
                 messages.error(request, 'El cuerpo y al menos un botón son requeridos.')
                 return redirect('whatsapp:conversacion', pk=pk)
             buttons = [{'id': f'btn_{i}', 'title': title} for i, title in enumerate(btn_titles[:3])]
-            from .sender import send_interactive_message
-            try:
-                result = send_interactive_message(conv.telefono, body_text, buttons, header_text, footer_text)
-                wam_id = result.get('id', '')
-                btn_display = ' | '.join(f'[{b["title"]}]' for b in buttons)
-                Mensaje.objects.create(
-                    conversacion=conv, contacto=conv.contacto,
-                    direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_INTERACTIVO,
-                    contenido=body_text + '\n' + btn_display,
-                    whatsapp_message_id=wam_id, status=Mensaje.STATUS_ENVIADO,
-                    enviado_por=request.user, timestamp=timezone.now(),
-                )
-                Conversacion.objects.filter(pk=pk).update(ultimo_mensaje_at=timezone.now())
-                messages.success(request, 'Mensaje con botones enviado.')
-            except Exception as e:
-                messages.error(request, f'Error al enviar mensaje interactivo: {e}')
+            btn_display = ' | '.join(f'[{b["title"]}]' for b in buttons)
+            msg = Mensaje.objects.create(
+                conversacion=conv, contacto=conv.contacto,
+                direccion=Mensaje.DIR_SALIENTE, tipo=Mensaje.TIPO_INTERACTIVO,
+                contenido=body_text + '\n' + btn_display,
+                status=Mensaje.STATUS_PENDIENTE,
+                enviado_por=request.user, timestamp=timezone.now(),
+            )
+            send_whatsapp_interactive_task.delay(msg.pk, body_text, buttons, header_text, footer_text)
+            Conversacion.objects.filter(pk=pk).update(ultimo_mensaje_at=timezone.now())
+            messages.success(request, 'Mensaje con botones en cola de envío.')
 
         elif action == 'assign_agent' and request.user.can_see_all_leads:
             agente_id = request.POST.get('agente_id')

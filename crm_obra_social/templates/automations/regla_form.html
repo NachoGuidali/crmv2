@@ -12,6 +12,7 @@
   <div class="row g-4">
     <div class="col-12 col-lg-8">
 
+      <!-- ═══ General ═══ -->
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-transparent fw-semibold">General</div>
         <div class="card-body">
@@ -21,15 +22,32 @@
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Descripción</label>
-            <textarea name="descripcion" class="form-control" rows="2" placeholder="Qué hace esta regla...">{{ instance.descripcion|default:'' }}</textarea>
+            <textarea name="descripcion" class="form-control" rows="2">{{ instance.descripcion|default:'' }}</textarea>
           </div>
           <div class="row g-3">
             <div class="col-md-5">
-              <label class="form-label fw-semibold">Aplica a</label>
+              <label class="form-label fw-semibold">Entidad</label>
+              <select name="entidad" id="entidadSel" class="form-select">
+                {% for val, label in entidad_choices %}
+                <option value="{{ val }}" {% if instance.entidad == val %}selected{% elif not instance.pk and val == 'contacto' %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-5" id="tipo-contacto-panel">
+              <label class="form-label fw-semibold">Tipo de contacto</label>
               <select name="tipo_contacto" class="form-select">
-                <option value="">Todos los tipos de contacto</option>
+                <option value="">Todos los tipos</option>
                 {% for t in tipos_contacto %}
                 <option value="{{ t.pk }}" {% if instance.tipo_contacto_id == t.pk %}selected{% endif %}>{{ t.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-5" id="entidad-pipeline-panel">
+              <label class="form-label fw-semibold">Pipeline de negociaciones</label>
+              <select name="entidad_pipeline" class="form-select">
+                <option value="">Todos los pipelines</option>
+                {% for p in pipelines %}
+                <option value="{{ p.pk }}" {% if instance.entidad_pipeline_id == p.pk %}selected{% endif %}>{{ p.nombre }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -49,7 +67,7 @@
       </div>
 
       <input type="hidden" name="modo" id="modoInput" value="{{ instance.modo|default:'automatizacion' }}">
-      <div class="btn-group mb-4" role="group" aria-label="Tipo de regla">
+      <div class="btn-group mb-4" role="group">
         <button type="button" class="btn modo-tab" data-modo="automatizacion">⚡ Automatización</button>
         <button type="button" class="btn modo-tab" data-modo="disparador">🎯 Disparador</button>
       </div>
@@ -59,6 +77,7 @@
         <div class="card-header bg-transparent fw-semibold"><span class="badge bg-secondary me-1">1</span> Tiempo de ejecución</div>
         <div class="card-body">
           <div class="mb-3">
+            <label class="form-label small fw-semibold">¿Cuándo ejecutar?</label>
             <select name="tiempo_tipo" id="tiempoTipo" class="form-select" style="max-width:340px">
               {% for val, label in tiempo_choices %}
               <option value="{{ val }}" {% if instance.tiempo_tipo == val %}selected{% endif %}>{{ label }}</option>
@@ -66,19 +85,19 @@
             </select>
           </div>
 
-          <div id="tiempo-delay-panel" class="d-flex align-items-end gap-2 flex-wrap">
+          <div id="tiempo-delay-panel" class="d-flex align-items-end gap-2 flex-wrap mb-3">
             <input type="number" name="tiempo_cantidad" class="form-control" style="width:90px" min="1" value="{{ instance.tiempo_cantidad|default:'1' }}">
             <select name="tiempo_unidad" class="form-select" style="width:130px">
               {% for val, label in unidad_choices %}
               <option value="{{ val }}" {% if instance.tiempo_unidad == val %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
-            <span class="text-muted small pb-2">después de creado el contacto</span>
+            <span class="text-muted small pb-2">después de creado el registro</span>
           </div>
 
-          <div id="tiempo-date-panel" class="row g-3">
+          <div id="tiempo-date-panel" class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label small">Cuando este campo de fecha…</label>
+              <label class="form-label small">Campo de fecha de referencia</label>
               <select name="tiempo_campo_fecha" class="form-select">
                 {% for val, label in campo_fecha_choices %}
                 <option value="{{ val }}" {% if instance.tiempo_campo_fecha == val %}selected{% endif %}>{{ label }}</option>
@@ -86,8 +105,33 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label small">…se cumpla, con un offset de (días; negativo = antes, positivo = después)</label>
+              <label class="form-label small">Offset (días antes / después — 0 = el mismo día)</label>
               <input type="number" name="tiempo_offset_dias" class="form-control" style="width:120px" value="{{ instance.tiempo_offset_dias|default:'0' }}">
+              <div class="form-text">Negativo = antes de la fecha; positivo = después.</div>
+            </div>
+          </div>
+
+          <div class="border rounded-3 p-3 bg-opacity-10" style="background:var(--bg3);">
+            <p class="small fw-semibold mb-2"><i class="bi bi-funnel me-1"></i>Filtrar por etapa / embudo <span class="text-muted fw-normal">(opcional)</span></p>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label small">Solo en el pipeline</label>
+                <select name="filtro_pipeline" class="form-select form-select-sm">
+                  <option value="">Cualquier pipeline</option>
+                  {% for p in pipelines %}
+                  <option value="{{ p.pk }}" {% if instance.filtro_pipeline_id == p.pk %}selected{% endif %}>{{ p.nombre }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small">Solo en la etapa</label>
+                <select name="filtro_etapa" class="form-select form-select-sm">
+                  <option value="">Cualquier etapa</option>
+                  {% for s in stages %}
+                  <option value="{{ s.pk }}" {% if instance.filtro_etapa_id == s.pk %}selected{% endif %}>{{ s.pipeline.nombre }} — {{ s.nombre }}</option>
+                  {% endfor %}
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -154,7 +198,7 @@
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-transparent fw-semibold">
           <span class="badge bg-secondary me-1">2</span> Condiciones
-          <span class="text-muted fw-normal small">(opcional — si no agregás ninguna, la regla siempre se evalúa)</span>
+          <span class="text-muted fw-normal small">(opcional)</span>
         </div>
         <div class="card-body">
           <div id="condicionesContainer"></div>
@@ -177,19 +221,42 @@
             </select>
           </div>
 
+          <!-- Cambiar campo -->
           <div id="accion-field" class="accion-panel">
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label small">Campo a cambiar</label>
-                <input type="text" name="accion_campo" class="form-control" value="{{ instance.accion_campo|default:'' }}" placeholder="prioridad, origen, o slug de un campo personalizado">
+                <select id="accionCampoSel" class="form-select form-select-sm">
+                  <option value="">— Seleccioná un campo —</option>
+                </select>
+                <input type="hidden" name="accion_campo" id="accionCampoInput" value="{{ instance.accion_campo|default:'' }}">
               </div>
               <div class="col-md-6">
                 <label class="form-label small">Nuevo valor</label>
-                <input type="text" name="accion_valor" class="form-control" value="{{ instance.accion_valor|default:'' }}" placeholder="nuevo valor...">
+                <div class="mb-1">
+                  <div class="btn-group btn-group-sm" role="group">
+                    <input type="radio" class="btn-check" name="accion_valor_tipo" id="valorFijoRadio" value="fijo" autocomplete="off"
+                           {% if not instance.accion_valor or not instance.accion_valor|slice:":7" == '@field:' %}checked{% endif %}>
+                    <label class="btn btn-outline-secondary py-0" for="valorFijoRadio">Valor fijo</label>
+                    <input type="radio" class="btn-check" name="accion_valor_tipo" id="valorCampoRadio" value="campo" autocomplete="off"
+                           {% if instance.accion_valor and instance.accion_valor|slice:":7" == '@field:' %}checked{% endif %}>
+                    <label class="btn btn-outline-secondary py-0" for="valorCampoRadio">Copiar de campo</label>
+                  </div>
+                </div>
+                <div id="accion-valor-fijo-wrap">
+                  {# rendered dynamically by JS based on campo type #}
+                </div>
+                <div id="accion-valor-campo-wrap">
+                  <select id="accionValorCampoSel" class="form-select form-select-sm">
+                    <option value="">— Elegir campo origen —</option>
+                  </select>
+                </div>
+                <input type="hidden" name="accion_valor" id="accionValorInput" value="{{ instance.accion_valor|default:'' }}">
               </div>
             </div>
           </div>
 
+          <!-- Mover a etapa -->
           <div id="accion-stage" class="accion-panel">
             <label class="form-label small">Mover a la etapa</label>
             <select name="accion_stage" class="form-select" style="max-width:340px">
@@ -200,6 +267,7 @@
             </select>
           </div>
 
+          <!-- Asignar agente -->
           <div id="accion-assign" class="accion-panel">
             <label class="form-label small">Asignar al agente</label>
             <select name="accion_agente" class="form-select" style="max-width:340px">
@@ -210,6 +278,7 @@
             </select>
           </div>
 
+          <!-- Enviar plantilla WA -->
           <div id="accion-plantilla_wa" class="accion-panel">
             <label class="form-label small">Plantilla a enviar</label>
             <select name="accion_plantilla" class="form-select" style="max-width:340px">
@@ -220,17 +289,19 @@
             </select>
           </div>
 
+          <!-- Mensaje de texto libre -->
           <div id="accion-mensaje_wa" class="accion-panel">
             <label class="form-label small">Texto del mensaje</label>
             <textarea name="accion_mensaje_texto" class="form-control" rows="3" placeholder="Hola {nombre}, te contactamos porque...">{{ instance.accion_mensaje_texto|default:'' }}</textarea>
             <div class="form-text">Variables: <code>{nombre}</code>, <code>{etapa}</code>, <code>{telefono}</code>.</div>
           </div>
 
+          <!-- Crear tarea -->
           <div id="accion-tarea" class="accion-panel">
             <div class="mb-2">
               <label class="form-label small">Descripción de la tarea</label>
               <input name="accion_tarea_descripcion" class="form-control" value="{{ instance.accion_tarea_descripcion|default:'' }}" placeholder="ej: Llamar a {nombre} para seguimiento">
-              <div class="form-text">Usá <code>{nombre}</code> para incluir el nombre del contacto.</div>
+              <div class="form-text">Usá <code>{nombre}</code> para el nombre del contacto.</div>
             </div>
             <div>
               <label class="form-label small">Plazo (días desde hoy)</label>
@@ -238,6 +309,7 @@
             </div>
           </div>
 
+          <!-- Webhook -->
           <div id="accion-webhook" class="accion-panel">
             <label class="form-label small">URL del webhook</label>
             <input type="url" name="accion_webhook_url" class="form-control" value="{{ instance.accion_webhook_url|default:'' }}" placeholder="https://n8n.example.com/webhook/...">
@@ -258,15 +330,22 @@
 {% block extra_js %}
 <script src="/static/js/condiciones.js"></script>
 <script>
-// --- Tabs (modo) ---
+// ─── Datos de contexto ──────────────────────────────────────────────
+const CAMPOS_CONDICION = JSON.parse('{{ campos_condicion_json|escapejs }}');
+const CAMPOS_ACCION    = JSON.parse('{{ campos_accion_json|escapejs }}');
+const EVENTO_CAMPO_INICIAL = '{{ instance.evento_campo|default:""|escapejs }}';
+const EVENTO_VALOR_INICIAL = '{{ instance.evento_valor|default:""|escapejs }}';
+const ACCION_CAMPO_INICIAL  = '{{ instance.accion_campo|default:""|escapejs }}';
+const ACCION_VALOR_INICIAL  = '{{ instance.accion_valor|default:""|escapejs }}';
+
+// ─── Tabs (modo) ────────────────────────────────────────────────────
 const modoInput = document.getElementById('modoInput');
-const modoTabs = document.querySelectorAll('.modo-tab');
+const modoTabs  = document.querySelectorAll('.modo-tab');
 function setModo(modo) {
   modoInput.value = modo;
   modoTabs.forEach(btn => {
-    const active = btn.dataset.modo === modo;
-    btn.classList.toggle('btn-primary', active);
-    btn.classList.toggle('btn-outline-primary', !active);
+    btn.classList.toggle('btn-primary', btn.dataset.modo === modo);
+    btn.classList.toggle('btn-outline-primary', btn.dataset.modo !== modo);
   });
   document.getElementById('panel-automatizacion').style.display = modo === 'automatizacion' ? '' : 'none';
   document.getElementById('panel-disparador').style.display = modo === 'disparador' ? '' : 'none';
@@ -274,93 +353,190 @@ function setModo(modo) {
 modoTabs.forEach(btn => btn.addEventListener('click', () => setModo(btn.dataset.modo)));
 setModo(modoInput.value || 'automatizacion');
 
-// --- Paso 1 · Automatización: tiempo de ejecución ---
+// ─── Entidad selector ───────────────────────────────────────────────
+const entidadSel = document.getElementById('entidadSel');
+function updateEntidadPanels() {
+  const v = entidadSel.value;
+  document.getElementById('tipo-contacto-panel').style.display    = v === 'contacto'    ? '' : 'none';
+  document.getElementById('entidad-pipeline-panel').style.display = v === 'negociacion' ? '' : 'none';
+}
+entidadSel.addEventListener('change', updateEntidadPanels);
+updateEntidadPanels();
+
+// ─── Tiempo de ejecución ────────────────────────────────────────────
 function updateTiempoPanels() {
   const v = document.getElementById('tiempoTipo').value;
   document.getElementById('tiempo-delay-panel').style.display = v === 'delay' ? '' : 'none';
-  document.getElementById('tiempo-date-panel').style.display = v === 'date' ? '' : 'none';
+  document.getElementById('tiempo-date-panel').style.display  = v === 'date'  ? '' : 'none';
 }
 document.getElementById('tiempoTipo').addEventListener('change', updateTiempoPanels);
 updateTiempoPanels();
 
-// --- Paso 1 · Disparador: evento que dispara ---
+// ─── Disparador: evento que dispara ─────────────────────────────────
 function updateEventoPanels() {
   const v = document.getElementById('eventoTipo').value;
-  document.getElementById('evento-campo-panel').style.display = (v === 'field_change' || v === 'field_equals') ? '' : 'none';
-  document.getElementById('evento-valor-panel').style.display = (v === 'field_equals') ? '' : 'none';
-  document.getElementById('evento-stage-panel').style.display = (v === 'stage_change') ? '' : 'none';
-  document.getElementById('evento-webhook-panel').style.display = (v === 'webhook') ? '' : 'none';
+  document.getElementById('evento-campo-panel').style.display   = (v === 'field_change' || v === 'field_equals') ? '' : 'none';
+  document.getElementById('evento-valor-panel').style.display   = v === 'field_equals' ? '' : 'none';
+  document.getElementById('evento-stage-panel').style.display   = v === 'stage_change' ? '' : 'none';
+  document.getElementById('evento-webhook-panel').style.display = v === 'webhook' ? '' : 'none';
 }
 document.getElementById('eventoTipo').addEventListener('change', updateEventoPanels);
 updateEventoPanels();
 
-// --- Paso 1 · Disparador: campo + valor (todos los campos, incl. personalizados) ---
-const CAMPOS_CONDICION = JSON.parse('{{ campos_condicion_json|escapejs }}');
-const EVENTO_CAMPO_INICIAL = '{{ instance.evento_campo|default:""|escapejs }}';
-const EVENTO_VALOR_INICIAL = '{{ instance.evento_valor|default:""|escapejs }}';
-
-const eventoCampoSel = document.getElementById('eventoCampoSel');
+const eventoCampoSel  = document.getElementById('eventoCampoSel');
 const eventoValorWrap = document.getElementById('evento-valor-input-wrap');
-
 eventoCampoSel.innerHTML = condicionCampoOptions(CAMPOS_CONDICION, EVENTO_CAMPO_INICIAL, true);
 eventoValorWrap.innerHTML = condicionValorControl(CAMPOS_CONDICION, EVENTO_CAMPO_INICIAL, EVENTO_VALOR_INICIAL, {name: 'evento_valor', size: ''});
 eventoCampoSel.addEventListener('change', () => {
   eventoValorWrap.innerHTML = condicionValorControl(CAMPOS_CONDICION, eventoCampoSel.value, '', {name: 'evento_valor', size: ''});
 });
 
-// --- Paso 3 · Acción ---
+// ─── Acción: panel selector ─────────────────────────────────────────
 const accionPanels = {
-  'field':        'accion-field',
-  'stage':        'accion-stage',
-  'assign':       'accion-assign',
-  'plantilla_wa': 'accion-plantilla_wa',
-  'mensaje_wa':   'accion-mensaje_wa',
-  'tarea':        'accion-tarea',
-  'webhook':      'accion-webhook',
+  'field': 'accion-field', 'stage': 'accion-stage', 'assign': 'accion-assign',
+  'plantilla_wa': 'accion-plantilla_wa', 'mensaje_wa': 'accion-mensaje_wa',
+  'tarea': 'accion-tarea', 'webhook': 'accion-webhook',
 };
 function updateAccionPanels() {
-  const v = document.getElementById('accionTipo').value;
   document.querySelectorAll('.accion-panel').forEach(p => p.style.display = 'none');
-  const target = accionPanels[v];
+  const target = accionPanels[document.getElementById('accionTipo').value];
   if (target) document.getElementById(target).style.display = '';
 }
 document.getElementById('accionTipo').addEventListener('change', updateAccionPanels);
 updateAccionPanels();
 
-// --- Paso 2 · Condiciones (bloques encadenables Y/O) ---
+// ─── Acción: campo a cambiar (dropdown) ─────────────────────────────
+const accionCampoSel    = document.getElementById('accionCampoSel');
+const accionCampoInput  = document.getElementById('accionCampoInput');
+const accionValorInput  = document.getElementById('accionValorInput');
+const accionValorFijoW  = document.getElementById('accion-valor-fijo-wrap');
+const accionValorCampoW = document.getElementById('accion-valor-campo-wrap');
+const accionValorCampoSel = document.getElementById('accionValorCampoSel');
+
+// Populate campo dropdown
+function buildCampoSel(currentCampo) {
+  let html = '<option value="">— Seleccioná un campo —</option>';
+  (CAMPOS_ACCION || []).forEach(f => {
+    html += `<option value="${escCondHtml(f.value)}" ${f.value === currentCampo ? 'selected' : ''}>${escCondHtml(f.label)}</option>`;
+  });
+  accionCampoSel.innerHTML = html;
+}
+
+// Populate valor campo-source dropdown
+function buildValorCampoSel(currentSrc) {
+  let html = '<option value="">— Elegir campo origen —</option>';
+  (CAMPOS_CONDICION || []).forEach(f => {
+    html += `<option value="${escCondHtml(f.value)}" ${f.value === currentSrc ? 'selected' : ''}>${escCondHtml(f.label)}</option>`;
+  });
+  accionValorCampoSel.innerHTML = html;
+}
+
+// Update valor fixed input based on campo type
+function updateValorFijoInput(campoValue, currentVal) {
+  const def = (CAMPOS_ACCION || []).find(f => f.value === campoValue);
+  let html = '';
+  if (def && def.type === 'select') {
+    const opts = (def.options || []).map(o =>
+      `<option value="${escCondHtml(o.v)}" ${String(o.v) === String(currentVal) ? 'selected' : ''}>${escCondHtml(o.l)}</option>`
+    ).join('');
+    html = `<select class="form-select form-select-sm" id="accionValorFijoCtrl"><option value="">— Elegir —</option>${opts}</select>`;
+  } else if (def && def.type === 'number') {
+    html = `<input type="number" class="form-control form-control-sm" id="accionValorFijoCtrl" value="${escCondHtml(currentVal)}">`;
+  } else if (def && def.type === 'date') {
+    html = `<input type="date" class="form-control form-control-sm" id="accionValorFijoCtrl" value="${escCondHtml(currentVal)}">`;
+  } else {
+    html = `<input type="text" class="form-control form-control-sm" id="accionValorFijoCtrl" value="${escCondHtml(currentVal)}" placeholder="nuevo valor...">`;
+  }
+  accionValorFijoW.innerHTML = html;
+  const ctrl = document.getElementById('accionValorFijoCtrl');
+  if (ctrl) {
+    ctrl.addEventListener('input', syncValorInput);
+    ctrl.addEventListener('change', syncValorInput);
+  }
+}
+
+function syncValorInput() {
+  const tipoRadio = document.querySelector('input[name="accion_valor_tipo"]:checked');
+  const tipo = tipoRadio ? tipoRadio.value : 'fijo';
+  if (tipo === 'campo') {
+    const src = accionValorCampoSel.value;
+    accionValorInput.value = src ? `@field:${src}` : '';
+  } else {
+    const ctrl = document.getElementById('accionValorFijoCtrl');
+    accionValorInput.value = ctrl ? ctrl.value : '';
+  }
+}
+
+function updateValorTipoUI() {
+  const tipoRadio = document.querySelector('input[name="accion_valor_tipo"]:checked');
+  const tipo = tipoRadio ? tipoRadio.value : 'fijo';
+  accionValorFijoW.style.display  = tipo === 'fijo'  ? '' : 'none';
+  accionValorCampoW.style.display = tipo === 'campo' ? '' : 'none';
+  syncValorInput();
+}
+
+// Init
+const isFieldRef = ACCION_VALOR_INICIAL.startsWith('@field:');
+const srcField   = isFieldRef ? ACCION_VALOR_INICIAL.slice(7) : '';
+const fixedVal   = isFieldRef ? '' : ACCION_VALOR_INICIAL;
+
+buildCampoSel(ACCION_CAMPO_INICIAL);
+buildValorCampoSel(srcField);
+updateValorFijoInput(ACCION_CAMPO_INICIAL, fixedVal);
+
+// Restore radio state
+if (isFieldRef) {
+  document.getElementById('valorCampoRadio').checked = true;
+} else {
+  document.getElementById('valorFijoRadio').checked = true;
+}
+updateValorTipoUI();
+
+// Events
+accionCampoSel.addEventListener('change', () => {
+  accionCampoInput.value = accionCampoSel.value;
+  const tipoRadio = document.querySelector('input[name="accion_valor_tipo"]:checked');
+  const tipo = tipoRadio ? tipoRadio.value : 'fijo';
+  updateValorFijoInput(accionCampoSel.value, tipo === 'fijo' ? '' : '');
+  syncValorInput();
+});
+document.querySelectorAll('input[name="accion_valor_tipo"]').forEach(r =>
+  r.addEventListener('change', updateValorTipoUI)
+);
+accionValorCampoSel.addEventListener('change', syncValorInput);
+
+// ─── Paso 2 · Condiciones ────────────────────────────────────────────
 const OPERADOR_OPTS = [
   {% for val, label in operador_choices %}{value: "{{ val }}", label: "{{ label|escapejs }}"},{% endfor %}
 ];
-
 let condiciones = [];
-try { condiciones = JSON.parse('{{ condiciones_json|escapejs }}'); } catch (e) { condiciones = []; }
+try { condiciones = JSON.parse('{{ condiciones_json|escapejs }}'); } catch(e) { condiciones = []; }
 if (!Array.isArray(condiciones)) condiciones = [];
 
 const condContainer = document.getElementById('condicionesContainer');
-
 function renderCondiciones() {
   renderCondicionesEditor(condContainer, condiciones, CAMPOS_CONDICION, OPERADOR_OPTS, (next) => {
     condiciones = next;
-  }, {
-    emptyMsg: 'Sin condiciones — esta regla se evalúa siempre.',
-  });
+  }, { emptyMsg: 'Sin condiciones — esta regla se evalúa siempre.' });
 }
-
 document.getElementById('addCondicionBtn').addEventListener('click', () => {
   condiciones.push({campo: CAMPOS_CONDICION.length ? CAMPOS_CONDICION[0].value : '', operador: 'eq', valor: '', conector: 'Y'});
   renderCondiciones();
 });
-
 renderCondiciones();
 
+// ─── Submit: serializar condiciones y campo hidden ───────────────────
 document.getElementById('reglaForm').addEventListener('submit', () => {
   const synced = Array.from(condContainer.querySelectorAll('.cond-block')).map(block => ({
-    campo: block.querySelector('.cond-campo').value,
+    campo:    block.querySelector('.cond-campo').value,
     operador: block.querySelector('.cond-operador').value,
-    valor: block.querySelector('.cond-valor').value,
+    valor:    block.querySelector('.cond-valor').value,
     conector: block.dataset.conector || 'Y',
   }));
   document.getElementById('condicionesInput').value = JSON.stringify(synced);
+  // Ensure accion_campo hidden is synced
+  accionCampoInput.value = accionCampoSel.value;
+  syncValorInput();
 });
 </script>
 {% endblock %}

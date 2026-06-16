@@ -303,17 +303,30 @@ class ContactoKanbanView(LoginRequiredMixin, ContactoQuerysetMixin, View):
             tipo_actual = next((t for t in tipos if t.pipeline_id), tipos[0])
 
         columns = {}
+        campos_tarjeta = []
         if tipo_actual.pipeline_id:
+            pipeline = tipo_actual.pipeline
             qs = self.get_base_queryset().filter(tipo=tipo_actual)
-            for stage in tipo_actual.pipeline.stages.all():
+            for stage in pipeline.stages.all():
                 columns[stage.pk] = {
                     'stage': stage,
                     'contactos': qs.filter(stage=stage).order_by('-prioridad', '-updated_at')[:50],
                 }
+            # Build campos_tarjeta descriptors for the template
+            custom_map = {
+                c.slug: c.nombre
+                for c in CampoPersonalizado.objects.filter(activo=True, entidad='contacto')
+            }
+            for slug in pipeline.campos_tarjeta:
+                if slug in _GATE_FIELD_LABELS:
+                    campos_tarjeta.append({'slug': slug, 'label': _GATE_FIELD_LABELS[slug]})
+                elif slug in custom_map:
+                    campos_tarjeta.append({'slug': slug, 'label': custom_map[slug]})
         return render(request, self.template_name, {
             'tipos': tipos,
             'tipo_actual': tipo_actual,
             'columns': columns,
+            'campos_tarjeta': campos_tarjeta,
         })
 
 
@@ -410,6 +423,7 @@ class ContactoDetailView(LoginRequiredMixin, ContactoQuerysetMixin, DetailView):
         if contacto.tipo.pipeline_id:
             for stage in contacto.tipo.pipeline.stages.all():
                 requeridos = []
+                # CampoRegla-based gates (custom fields with per-stage rules)
                 for campo in campos:
                     for regla in campo.reglas.all():
                         if (regla.accion == 'obligatorio'
@@ -418,6 +432,12 @@ class ContactoDetailView(LoginRequiredMixin, ContactoQuerysetMixin, DetailView):
                             val = (contacto.datos_extra or {}).get(campo.slug)
                             if not val:
                                 requeridos.append(campo.nombre)
+                # PipelineStage.campos_requeridos (standard + custom, configured on stage)
+                for slug in stage.campos_requeridos:
+                    if not _get_gate_value(contacto, slug):
+                        label = _GATE_FIELD_LABELS.get(slug, slug)
+                        if label not in requeridos:
+                            requeridos.append(label)
                 if requeridos:
                     stage_gates[stage.pk] = requeridos
         ctx['stage_gates_json'] = json.dumps(stage_gates)
@@ -600,6 +620,73 @@ class DocumentoDeleteView(LoginRequiredMixin, View):
         return redirect('contactos:detail', pk=contacto_pk)
 
 
+class CampoArchivoUploadView(LoginRequiredMixin, View):
+    def post(self, request, pk, slug):
+        contacto = get_object_or_404(Contacto, pk=pk)
+        if not request.user.can_see_all_leads and contacto.agente != request.user:
+            return HttpResponseForbidden()
+        try:
+            cp = CampoPersonalizado.objects.get(
+                slug=slug, activo=True, tipo=CampoPersonalizado.TIPO_ARCHIVO,
+                entidad=CampoPersonalizado.ENTIDAD_CONTACTO,
+            )
+        except CampoPersonalizado.DoesNotExist:
+            return JsonResponse({'error': 'Campo no encontrado.'}, status=400)
+        if not cp.aplica_a(contacto.tipo):
+            return JsonResponse({'error': 'Campo no aplicable.'}, status=400)
+
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return JsonResponse({'error': 'No se recibió ningún archivo.'}, status=400)
+        if archivo.size > 20 * 1024 * 1024:
+            return JsonResponse({'error': 'El archivo supera 20 MB.'}, status=400)
+
+        import os
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+
+        safe_name = re.sub(r'[^\w\s\-.]', '', archivo.name).strip()[:100] or 'archivo'
+        upload_path = f'campos_personalizados/{pk}/{slug}/{safe_name}'
+
+        extra = dict(contacto.datos_extra or {})
+        old_path = extra.get(slug)
+        if old_path:
+            try:
+                default_storage.delete(old_path)
+            except Exception:
+                pass
+
+        saved_path = default_storage.save(upload_path, ContentFile(archivo.read()))
+        extra[slug] = saved_path
+        contacto.datos_extra = extra
+        contacto.save(update_fields=['datos_extra'])
+
+        return JsonResponse({
+            'ok': True,
+            'path': saved_path,
+            'nombre': os.path.basename(saved_path),
+            'url': default_storage.url(saved_path),
+        })
+
+
+class CampoArchivoDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk, slug):
+        contacto = get_object_or_404(Contacto, pk=pk)
+        if not request.user.can_see_all_leads and contacto.agente != request.user:
+            return HttpResponseForbidden()
+        from django.core.files.storage import default_storage
+        extra = dict(contacto.datos_extra or {})
+        old_path = extra.pop(slug, None)
+        if old_path:
+            try:
+                default_storage.delete(old_path)
+            except Exception:
+                pass
+        contacto.datos_extra = extra
+        contacto.save(update_fields=['datos_extra'])
+        return JsonResponse({'ok': True})
+
+
 # ── Tipos de contacto CRUD (configurable desde el panel) ──
 
 class SupervisorRequiredMixin(UserPassesTestMixin):
@@ -737,6 +824,13 @@ class ContactoEtapaChangeView(LoginRequiredMixin, ContactoQuerysetMixin, View):
                         val = (contacto.datos_extra or {}).get(campo.slug)
                         if not val:
                             bloqueantes.append(campo.nombre)
+            # Also check PipelineStage.campos_requeridos (standard + custom)
+            for slug in nueva.campos_requeridos:
+                if not _get_gate_value(contacto, slug):
+                    label = _GATE_FIELD_LABELS.get(slug, slug)
+                    if label not in bloqueantes:
+                        bloqueantes.append(label)
+
             if bloqueantes:
                 lista = ', '.join(f'"{b}"' for b in bloqueantes)
                 messages.error(request, f'Para avanzar a "{nueva.nombre}" completá: {lista}.')
@@ -759,12 +853,13 @@ class ContactoEtapaChangeView(LoginRequiredMixin, ContactoQuerysetMixin, View):
                 nota=form.cleaned_data.get('nota', ''),
             )
             messages.success(request, f'Etapa cambiada a "{nueva.nombre}".')
-            try:
-                from apps.automations.tasks import iniciar_flujos_para_contacto
-                from apps.automations.models import Flujo
-                iniciar_flujos_para_contacto(contacto, Flujo.TRIGGER_ETAPA_CAMBIA)
-            except Exception:
-                pass
+            from django.db import transaction
+            from apps.automations.tasks import iniciar_flujos_para_contacto_task, _safe_delay
+            from apps.automations.models import Flujo
+            transaction.on_commit(
+                lambda: _safe_delay(iniciar_flujos_para_contacto_task,
+                                     contacto_id=contacto.pk, evento=Flujo.TRIGGER_ETAPA_CAMBIA)
+            )
         else:
             for field, errs in form.errors.items():
                 for err in errs:
@@ -1141,6 +1236,20 @@ _INLINE_EDITABLE = {
     'agente', 'plan_interes',
 }
 
+_GATE_FIELD_LABELS = {
+    'dni': 'DNI', 'email': 'Email', 'telefono': 'Teléfono',
+    'fecha_nacimiento': 'Fecha de nacimiento', 'localidad': 'Localidad',
+    'provincia': 'Provincia', 'grupo_familiar': 'Grupo familiar',
+    'origen': 'Origen', 'plan_interes': 'Plan de interés',
+    'agente': 'Agente asignado', 'prioridad': 'Prioridad',
+}
+
+def _get_gate_value(contacto, slug):
+    """Return the current value of a standard or custom field for gate validation."""
+    if slug in _GATE_FIELD_LABELS:
+        return getattr(contacto, slug, None)
+    return (contacto.datos_extra or {}).get(slug)
+
 class ContactoFieldUpdateView(LoginRequiredMixin, ContactoQuerysetMixin, View):
     """AJAX PATCH: update a single standard field of a contacto inline."""
     def post(self, request, pk):
@@ -1149,7 +1258,60 @@ class ContactoFieldUpdateView(LoginRequiredMixin, ContactoQuerysetMixin, View):
         valor = request.POST.get('valor', '').strip()
 
         if campo not in _INLINE_EDITABLE:
-            return JsonResponse({'error': 'Campo no editable.'}, status=400)
+            # Try to handle as a custom field (datos_extra)
+            try:
+                cp = CampoPersonalizado.objects.prefetch_related('reglas').get(
+                    slug=campo, activo=True, entidad=CampoPersonalizado.ENTIDAD_CONTACTO,
+                )
+            except CampoPersonalizado.DoesNotExist:
+                return JsonResponse({'error': 'Campo no editable.'}, status=400)
+
+            if not cp.aplica_a(contacto.tipo):
+                return JsonResponse({'error': 'Campo no aplicable.'}, status=400)
+
+            if any(r.accion == 'solo_lectura' and r.evaluar(contacto) for r in cp.reglas.all()):
+                return JsonResponse({'error': 'Campo de solo lectura.'}, status=400)
+
+            extra = dict(contacto.datos_extra or {})
+
+            if cp.tipo == CampoPersonalizado.TIPO_BOOLEANO:
+                extra[campo] = valor in ('1', 'true', 'True', 'on')
+                display = 'Sí' if extra[campo] else 'No'
+            elif cp.tipo == CampoPersonalizado.TIPO_LISTA:
+                if valor and valor not in cp.opciones:
+                    return JsonResponse({'error': 'Opción inválida.'}, status=400)
+                if valor:
+                    extra[campo] = valor
+                else:
+                    extra.pop(campo, None)
+                display = extra.get(campo, '') or '—'
+            elif cp.tipo == CampoPersonalizado.TIPO_NUMERO:
+                if valor:
+                    try:
+                        extra[campo] = float(valor) if '.' in valor else int(valor)
+                    except ValueError:
+                        return JsonResponse({'error': 'Valor numérico inválido.'}, status=400)
+                else:
+                    extra.pop(campo, None)
+                display = str(extra.get(campo, '')) or '—'
+            elif cp.tipo == CampoPersonalizado.TIPO_FECHA:
+                if valor:
+                    if not re.match(r'^\d{4}-\d{2}-\d{2}$', valor):
+                        return JsonResponse({'error': 'Formato de fecha inválido.'}, status=400)
+                    extra[campo] = valor
+                else:
+                    extra.pop(campo, None)
+                display = extra.get(campo, '') or '—'
+            else:  # TIPO_TEXTO
+                if valor:
+                    extra[campo] = valor
+                else:
+                    extra.pop(campo, None)
+                display = extra.get(campo, '') or '—'
+
+            contacto.datos_extra = extra
+            contacto.save(update_fields=['datos_extra'])
+            return JsonResponse({'ok': True, 'display': display})
 
         # Special handling for FK / choice fields
         if campo == 'plan_interes':

@@ -317,3 +317,97 @@ def send_whatsapp_message_task(self, mensaje_id: int):
             error_detalle=str(exc),
         )
         raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_whatsapp_template_task(self, mensaje_id: int):
+    """Send a queued outgoing HSM template message."""
+    from .models import Mensaje
+    from .sender import send_text_message
+
+    try:
+        mensaje = Mensaje.objects.select_related('conversacion').get(pk=mensaje_id)
+        result = send_text_message(mensaje.conversacion.telefono, mensaje.contenido)
+        wam_id = result.get('id', '')
+        Mensaje.objects.filter(pk=mensaje_id).update(
+            whatsapp_message_id=wam_id,
+            status=Mensaje.STATUS_ENVIADO,
+        )
+    except Exception as exc:
+        logger.exception('Error sending template message %s: %s', mensaje_id, exc)
+        Mensaje.objects.filter(pk=mensaje_id).update(
+            status=Mensaje.STATUS_FALLIDO,
+            error_detalle=str(exc),
+        )
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_whatsapp_interactive_task(self, mensaje_id: int, body_text: str, buttons: list,
+                                    header_text: str = '', footer_text: str = ''):
+    """Send a queued outgoing interactive (buttons) message."""
+    from .models import Mensaje
+    from .sender import send_interactive_message
+
+    try:
+        mensaje = Mensaje.objects.select_related('conversacion').get(pk=mensaje_id)
+        result = send_interactive_message(
+            mensaje.conversacion.telefono, body_text, buttons, header_text, footer_text,
+        )
+        wam_id = result.get('id', '')
+        Mensaje.objects.filter(pk=mensaje_id).update(
+            whatsapp_message_id=wam_id,
+            status=Mensaje.STATUS_ENVIADO,
+        )
+    except Exception as exc:
+        logger.exception('Error sending interactive message %s: %s', mensaje_id, exc)
+        Mensaje.objects.filter(pk=mensaje_id).update(
+            status=Mensaje.STATUS_FALLIDO,
+            error_detalle=str(exc),
+        )
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+def forward_to_n8n_task(self, payload: dict):
+    """Forward an Evolution API webhook payload to n8n, enriched with convenience fields."""
+    import requests as req
+    from django.conf import settings as dj_settings
+    from utils.phone import normalize_ar_phone, ar_phone_variants
+    from .models import Conversacion
+
+    url = getattr(dj_settings, 'N8N_WEBHOOK_URL', '')
+    if not url:
+        return
+
+    data = payload.get('data', {}) if isinstance(payload.get('data'), dict) else {}
+    jid = data.get('key', {}).get('remoteJid', '')
+    phone = ('+' + jid.split('@')[0]) if jid and '@' in jid else ''
+    msg = data.get('message', {})
+    content = (
+        msg.get('conversation', '')
+        or msg.get('extendedTextMessage', {}).get('text', '')
+        or data.get('messageType', '')
+    )
+
+    bot_n8n_activo = True
+    if phone:
+        norm = normalize_ar_phone(phone)
+        conv = Conversacion.objects.filter(telefono__in=ar_phone_variants(norm)).first()
+        if conv is not None:
+            bot_n8n_activo = conv.bot_n8n_activo
+
+    enriched = {
+        **payload,
+        'phone': phone,
+        'message': content,
+        'contact_name': data.get('pushName', ''),
+        'bot_n8n_activo': bot_n8n_activo,
+    }
+
+    try:
+        req.post(url, json=enriched, timeout=10)
+        logger.info('n8n webhook forwarded: event=%s phone=%s', payload.get('event', ''), phone)
+    except req.RequestException as exc:
+        logger.warning('n8n forward failed: %s', exc)
+        raise self.retry(exc=exc)

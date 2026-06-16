@@ -13,4 +13,8 @@ urlpatterns = [
     path('notificaciones/', views.NotificacionListView.as_view(), name='notificaciones'),
     path('notificaciones/leer/', views.NotificacionMarkAllReadView.as_view(), name='notificaciones_leer'),
     path('notificaciones/<int:pk>/leer/', views.NotificacionMarkReadView.as_view(), name='notificacion_leer'),
+    path('roles/', views.RolListView.as_view(), name='rol_list'),
+    path('roles/nuevo/', views.RolCreateView.as_view(), name='rol_create'),
+    path('roles/<int:pk>/editar/', views.RolUpdateView.as_view(), name='rol_update'),
+    path('roles/<int:pk>/eliminar/', views.RolDeleteView.as_view(), name='rol_delete'),
 ]

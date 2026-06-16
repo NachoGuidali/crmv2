@@ -200,7 +200,41 @@
 
         {% for campo in campos %}{% with cfg=campos_config|dict_key:campo.slug val=contacto.datos_extra|dict_key:campo.slug %}{% if not cfg.oculto %}
         <dt class="col-5">{{ campo.nombre }}</dt>
-        <dd class="col-7">{% if val %}{% if campo.tipo == 'booleano' %}{% if val %}Sí{% else %}No{% endif %}{% else %}{{ val }}{% endif %}{% else %}—{% endif %}</dd>
+        <dd class="col-7">
+          {% if cfg.solo_lectura %}
+            {% if val %}{% if campo.tipo == 'booleano' %}{% if val %}Sí{% else %}No{% endif %}{% elif campo.tipo == 'archivo' %}<a href="{{ val|media_url }}" target="_blank" class="small">{{ val|filename }}</a>{% else %}{{ val }}{% endif %}{% else %}—{% endif %}
+          {% elif campo.tipo == 'booleano' %}
+            <select class="form-select form-select-sm border-0 bg-transparent p-0" style="width:auto;cursor:pointer;"
+                    onchange="inlineSelectUpdate('{{ campo.slug }}', this.value)">
+              <option value="1" {% if val %}selected{% endif %}>Sí</option>
+              <option value="0" {% if not val %}selected{% endif %}>No</option>
+            </select>
+          {% elif campo.tipo == 'lista' %}
+            <select class="form-select form-select-sm border-0 bg-transparent p-0" style="width:auto;cursor:pointer;"
+                    onchange="inlineSelectUpdate('{{ campo.slug }}', this.value)">
+              <option value="">— Sin valor —</option>
+              {% for opcion in campo.opciones %}
+              <option value="{{ opcion }}" {% if val == opcion %}selected{% endif %}>{{ opcion }}</option>
+              {% endfor %}
+            </select>
+          {% elif campo.tipo == 'archivo' %}
+            <div id="archivo-campo-{{ campo.slug }}">
+              {% if val %}
+              <a href="{{ val|media_url }}" target="_blank" class="text-decoration-none small me-1"><i class="bi bi-file-earmark me-1"></i>{{ val|filename }}</a>
+              <button type="button" class="btn btn-link p-0 text-danger" style="font-size:.75rem;" onclick="deleteCampoArchivo('{{ campo.slug }}')"><i class="bi bi-x-circle"></i></button>
+              {% else %}
+              <span class="text-muted small" id="archivo-empty-{{ campo.slug }}">—</span>
+              {% endif %}
+            </div>
+            <label class="btn btn-outline-secondary py-0 px-1 mt-1" style="font-size:.72rem;cursor:pointer;">
+              <input type="file" class="d-none campo-archivo-input" data-slug="{{ campo.slug }}">
+              <i class="bi bi-upload"></i> {% if val %}Cambiar{% else %}Subir{% endif %}
+            </label>
+          {% else %}
+            <span class="inline-field" data-campo="{{ campo.slug }}"
+                  data-tipo="{% if campo.tipo == 'fecha' %}date{% elif campo.tipo == 'numero' %}number{% else %}text{% endif %}">{{ val|default:"—" }}</span>
+          {% endif %}
+        </dd>
         {% endif %}{% endwith %}{% endfor %}
       </dl>
     </div>
@@ -661,6 +695,46 @@ function eliminarNota(pk, btn) {
     this.parentElement.insertBefore(div, this.nextSibling);
   });
 })();
+
+// ── Campos personalizados tipo archivo ────────────────────
+document.querySelectorAll('.campo-archivo-input').forEach(input => {
+  input.addEventListener('change', async function () {
+    if (!this.files[0]) return;
+    const slug = this.dataset.slug;
+    const formData = new FormData();
+    formData.append('archivo', this.files[0]);
+    const label = this.closest('label');
+    const origText = label.innerHTML;
+    label.innerHTML = '<i class="bi bi-hourglass-split"></i> Subiendo…';
+    try {
+      const res = await fetch(`/contactos/{{ contacto.pk }}/campo-archivo/${slug}/`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.ok) {
+        location.reload();
+      } else {
+        alert(data.error || 'Error al subir el archivo.');
+        label.innerHTML = origText;
+      }
+    } catch (e) {
+      alert('Error de red al subir el archivo.');
+      label.innerHTML = origText;
+    }
+  });
+});
+
+async function deleteCampoArchivo(slug) {
+  if (!confirm('¿Eliminar el archivo?')) return;
+  const res = await fetch(`/contactos/{{ contacto.pk }}/campo-archivo/${slug}/eliminar/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': CSRF},
+  });
+  const data = await res.json();
+  if (data.ok) location.reload();
+}
 
 // ── Campos personalizados visibilidad ──────────────────────
 (function () {

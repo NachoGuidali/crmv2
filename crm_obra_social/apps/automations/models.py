@@ -37,10 +37,19 @@ class ReglaAutomatizacion(models.Model):
         (UNIDAD_DIAS, 'días'),
     ]
 
-    CAMPO_FECHA_CHOICES = [
+    # CAMPO_FECHA_CHOICES is built dynamically in views._form_ctx() to include custom date fields.
+    # These are the base (non-custom) date fields:
+    CAMPO_FECHA_BASE = [
         ('created_at', 'Fecha de ingreso'),
         ('fecha_nacimiento', 'Fecha de nacimiento'),
-        ('campo_personalizado', 'Campo de fecha personalizado'),
+    ]
+
+    # --- Entidad a la que aplica la regla ---
+    ENTIDAD_CONTACTO    = 'contacto'
+    ENTIDAD_NEGOCIACION = 'negociacion'
+    ENTIDAD_CHOICES = [
+        ('contacto',    'Contacto'),
+        ('negociacion', 'Negociación'),
     ]
 
     # --- Evento que dispara (modo disparador) ---
@@ -125,9 +134,27 @@ class ReglaAutomatizacion(models.Model):
     orden = models.PositiveSmallIntegerField(default=0, verbose_name='Orden de ejecución')
     modo = models.CharField(max_length=20, choices=MODO_CHOICES, default=MODO_AUTOMATIZACION,
                             db_index=True, verbose_name='Tipo de regla')
+    entidad = models.CharField(max_length=20, choices=ENTIDAD_CHOICES, default=ENTIDAD_CONTACTO,
+                               verbose_name='Entidad',
+                               help_text='"Contacto" para automatizaciones sobre contactos; "Negociación" para deals.')
     tipo_contacto = models.ForeignKey(
         'contactos.TipoContacto', null=True, blank=True, on_delete=models.SET_NULL,
-        verbose_name='Aplica a', help_text='Dejar vacío para aplicar a todos los tipos de contacto.',
+        verbose_name='Tipo de contacto', help_text='Dejar vacío para aplicar a todos los tipos.',
+    )
+    entidad_pipeline = models.ForeignKey(
+        'contactos.Pipeline', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='Pipeline de negociaciones',
+        help_text='Solo aplica cuando la entidad es "Negociación".',
+    )
+    filtro_pipeline = models.ForeignKey(
+        'contactos.Pipeline', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='Solo en el pipeline',
+        help_text='Si se especifica, solo se ejecuta para contactos cuyo pipeline activo sea este.',
+    )
+    filtro_etapa = models.ForeignKey(
+        'contactos.PipelineStage', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='Solo en la etapa',
+        help_text='Si se especifica, solo se ejecuta cuando el contacto/deal está en esta etapa.',
     )
 
     # --- Tiempo de ejecución (solo modo automatización) ---

@@ -9,6 +9,56 @@ from .registry import register_action, ACTION_REGISTRY
 logger = logging.getLogger('apps.automations')
 
 
+# ─── Lock por contacto (evita races entre tasks async para el mismo contacto) ──
+
+CONTACT_LOCK_TTL = 120
+CONTACT_LOCK_RETRY_COUNTDOWN = 3
+CONTACT_LOCK_MAX_RETRIES = 10
+
+
+def _contact_lock_key(contacto_id):
+    return f'automation_lock_contacto_{contacto_id}'
+
+
+def _acquire_contact_lock(contacto_id):
+    from django.core.cache import cache
+    return bool(cache.add(_contact_lock_key(contacto_id), '1', CONTACT_LOCK_TTL))
+
+
+def _release_contact_lock(contacto_id):
+    from django.core.cache import cache
+    cache.delete(_contact_lock_key(contacto_id))
+
+
+def _safe_delay(task, *args, **kwargs):
+    """Encola una task sin propagar errores de conexión al broker hacia el request."""
+    try:
+        task.delay(*args, **kwargs)
+    except Exception as e:
+        logger.error('No se pudo encolar tarea %s: %s', task.name, e)
+
+
+# ─── Throttle de WhatsApp para acciones de automatizaciones/flujos ──────────
+# Espacia los envíos disparados automáticamente (ej. alta masiva por CSV con
+# un flujo "lead_creado" que manda WA) para no generar ráfagas sin el delay
+# anti-ban que sí tienen las campañas.
+
+WA_AUTOMATION_MIN_GAP = 3
+WA_AUTOMATION_MAX_WAIT = 60
+
+
+def _throttle_wa_send():
+    from django.core.cache import cache
+    import time
+    key = 'automation_wa_throttle'
+    waited = 0
+    while not cache.add(key, '1', WA_AUTOMATION_MIN_GAP):
+        if waited >= WA_AUTOMATION_MAX_WAIT:
+            return
+        time.sleep(0.5)
+        waited += 0.5
+
+
 # ─── Evaluación de condiciones (compartida por automatizaciones y disparadores) ──
 
 def _get_field_value(contacto, campo):
@@ -139,14 +189,25 @@ def ejecutar_automatizaciones():
 
 
 def _ejecutar_automatizacion(regla, now):
-    """Aplica una regla de tipo Automatización a los contactos que correspondan."""
+    """Aplica una regla de tipo Automatización a los contactos (o deals) que correspondan."""
+    from .models import ReglaAutomatizacion
+    if regla.entidad == ReglaAutomatizacion.ENTIDAD_NEGOCIACION:
+        return _ejecutar_automatizacion_deal(regla, now)
+    return _ejecutar_automatizacion_contacto(regla, now)
+
+
+def _ejecutar_automatizacion_contacto(regla, now):
     from django.db.models import Exists, OuterRef
     from .models import ReglaAutomatizacion, AutomatizacionLog
     from apps.contactos.models import Contacto
 
-    qs = Contacto.objects.select_related('agente', 'stage', 'tipo').exclude(stage__es_perdido=True)
+    qs = Contacto.objects.select_related('agente', 'stage', 'tipo', 'stage__pipeline').exclude(stage__es_perdido=True)
     if regla.tipo_contacto_id:
         qs = qs.filter(tipo_id=regla.tipo_contacto_id)
+    if regla.filtro_etapa_id:
+        qs = qs.filter(stage_id=regla.filtro_etapa_id)
+    if regla.filtro_pipeline_id:
+        qs = qs.filter(stage__pipeline_id=regla.filtro_pipeline_id)
 
     # Excluir contactos ya procesados por esta regla usando EXISTS (no carga IDs en memoria)
     ya_procesados_sq = AutomatizacionLog.objects.filter(regla=regla, contacto=OuterRef('pk'))
@@ -192,6 +253,58 @@ def _ejecutar_automatizacion(regla, now):
         count += 1
         logger.info('Regla "%s" → contacto #%d: %s', regla.nombre, contacto.pk, resultado)
 
+    return count
+
+
+def _ejecutar_automatizacion_deal(regla, now):
+    """Aplica una regla de tipo Automatización a los deals que correspondan."""
+    from django.db.models import Exists, OuterRef
+    from .models import ReglaAutomatizacion, AutomatizacionLog
+    from apps.deals.models import Deal
+
+    qs = Deal.objects.select_related('agente', 'stage', 'pipeline', 'contacto').exclude(stage__es_perdido=True)
+    if regla.entidad_pipeline_id:
+        qs = qs.filter(pipeline_id=regla.entidad_pipeline_id)
+    if regla.filtro_etapa_id:
+        qs = qs.filter(stage_id=regla.filtro_etapa_id)
+
+    ya_procesados_sq = AutomatizacionLog.objects.filter(regla=regla, contacto=OuterRef('contacto_id'))
+    qs = qs.exclude(Exists(ya_procesados_sq))
+
+    if regla.tiempo_tipo == ReglaAutomatizacion.TIEMPO_INSTANTANEO:
+        ventana = timedelta(hours=2)
+        candidatos = list(qs.filter(created_at__gte=now - ventana, created_at__lte=now))
+    elif regla.tiempo_tipo == ReglaAutomatizacion.TIEMPO_DEMORA:
+        delta = _delta_from_unidad(regla.tiempo_cantidad, regla.tiempo_unidad)
+        ventana = timedelta(hours=2)
+        candidatos = list(qs.filter(created_at__gte=now - delta - ventana, created_at__lte=now - delta))
+    elif regla.tiempo_tipo == ReglaAutomatizacion.TIEMPO_FECHA:
+        objetivo = (now + timedelta(days=regla.tiempo_offset_dias)).date()
+        campo = regla.tiempo_campo_fecha
+        if campo == 'fecha_cierre_estimada':
+            from django.db.models.functions import ExtractMonth, ExtractDay
+            candidatos = list(
+                qs.annotate(_mes=ExtractMonth('fecha_cierre_estimada'), _dia=ExtractDay('fecha_cierre_estimada'))
+                  .filter(_mes=objetivo.month, _dia=objetivo.day)
+            )
+        elif campo == 'created_at':
+            from django.db.models.functions import ExtractMonth, ExtractDay
+            candidatos = list(
+                qs.annotate(_mes=ExtractMonth('created_at'), _dia=ExtractDay('created_at'))
+                  .filter(_mes=objetivo.month, _dia=objetivo.day)
+            )
+        else:
+            candidatos = []
+    else:
+        return 0
+
+    count = 0
+    for deal in candidatos:
+        if deal.contacto_id:
+            resultado = _dispatch_action(regla, deal.contacto, now)
+            AutomatizacionLog.objects.create(regla=regla, contacto=deal.contacto, resultado=resultado, exitoso=True)
+            count += 1
+            logger.info('Regla "%s" → deal #%d (contacto #%d): %s', regla.nombre, deal.pk, deal.contacto_id, resultado)
     return count
 
 
@@ -305,11 +418,18 @@ def _dispatch_action(regla, contacto, now):
 @register_action('field')
 def _accion_cambiar_campo(regla, contacto, now):
     campo = (regla.accion_campo or '').strip()
-    valor = regla.accion_valor or ''
     if not campo:
         return 'sin campo configurado'
 
-    if campo in ('prioridad', 'origen', 'notas', 'email', 'localidad', 'provincia'):
+    valor_raw = regla.accion_valor or ''
+    if valor_raw.startswith('@field:'):
+        src = valor_raw[7:]
+        valor = str(_get_field_value(contacto, src) or '')
+    else:
+        valor = valor_raw
+
+    if campo in ('prioridad', 'origen', 'notas', 'email', 'localidad', 'provincia',
+                 'nombre_completo', 'localidad', 'provincia'):
         anterior = getattr(contacto, campo)
         setattr(contacto, campo, valor)
         contacto._skip_automation = True
@@ -365,6 +485,7 @@ def _accion_enviar_plantilla_wa(regla, contacto, now):
         return 'plantilla o teléfono no disponible'
 
     text = plantilla.preview_for_contact(contacto) if re.search(r'\{\{[a-zA-Z_]', plantilla.cuerpo) else plantilla.preview()
+    _throttle_wa_send()
     result = send_text_message(to=contacto.telefono, body=text)
     wam_id = result.get('id', '')
     conv, _ = Conversacion.objects.get_or_create(
@@ -393,6 +514,7 @@ def _accion_enviar_mensaje_wa(regla, contacto, now):
              .replace('{nombre}', contacto.nombre_completo)
              .replace('{etapa}', etapa)
              .replace('{telefono}', contacto.telefono))
+    _throttle_wa_send()
     result = send_text_message(to=contacto.telefono, body=texto)
     wam_id = result.get('id', '')
     conv, _ = Conversacion.objects.get_or_create(
@@ -499,6 +621,7 @@ def _ejecutar_accion_nodo(contacto, data, now):
                  .replace('{telefono}', contacto.telefono or ''))
         if not texto or not contacto.telefono:
             return 'mensaje_wa: sin texto o teléfono'
+        _throttle_wa_send()
         result = send_text_message(to=contacto.telefono, body=texto)
         wam_id = result.get('id', '')
         conv, _ = Conversacion.objects.get_or_create(
@@ -731,12 +854,51 @@ def iniciar_flujos_para_contacto(contacto, evento):
         nodo_inicio = _buscar_nodo_trigger(grafo_data)
         if not nodo_inicio:
             continue
-        ej, created = EjecucionFlujo.objects.get_or_create(
-            flujo=flujo, contacto=contacto,
-            defaults={'nodo_actual': nodo_inicio, 'status': EjecucionFlujo.STATUS_EN_CURSO},
-        )
+        from django.db import IntegrityError
+        try:
+            ej, created = EjecucionFlujo.objects.get_or_create(
+                flujo=flujo, contacto=contacto,
+                defaults={'nodo_actual': nodo_inicio, 'status': EjecucionFlujo.STATUS_EN_CURSO},
+            )
+        except IntegrityError:
+            ej = EjecucionFlujo.objects.get(flujo=flujo, contacto=contacto)
+            created = False
         if created:
             _avanzar_ejecucion(ej)
+
+
+# ─── Tasks async para los disparadores (signals / vistas) ──────────────────
+
+@shared_task(bind=True, max_retries=CONTACT_LOCK_MAX_RETRIES,
+              default_retry_delay=CONTACT_LOCK_RETRY_COUNTDOWN)
+def disparar_evento_task(self, contacto_id, evento_tipo, **ctx):
+    if not _acquire_contact_lock(contacto_id):
+        raise self.retry()
+    try:
+        disparar_evento(contacto_id, evento_tipo, **ctx)
+    except Exception as e:
+        logger.error('Error en disparar_evento_task contacto #%s evento %s: %s',
+                      contacto_id, evento_tipo, e)
+    finally:
+        _release_contact_lock(contacto_id)
+
+
+@shared_task(bind=True, max_retries=CONTACT_LOCK_MAX_RETRIES,
+              default_retry_delay=CONTACT_LOCK_RETRY_COUNTDOWN)
+def iniciar_flujos_para_contacto_task(self, contacto_id, evento):
+    from apps.contactos.models import Contacto
+    if not _acquire_contact_lock(contacto_id):
+        raise self.retry()
+    try:
+        contacto = Contacto.objects.select_related('agente', 'stage', 'tipo').get(pk=contacto_id)
+        iniciar_flujos_para_contacto(contacto, evento)
+    except Contacto.DoesNotExist:
+        pass
+    except Exception as e:
+        logger.error('Error en iniciar_flujos_para_contacto_task contacto #%s evento %s: %s',
+                      contacto_id, evento, e)
+    finally:
+        _release_contact_lock(contacto_id)
 
 
 @shared_task(name='automations.avanzar_flujos')
@@ -757,10 +919,15 @@ def avanzar_flujos():
     for ej in pendientes:
         if ej.status == EjecucionFlujo.STATUS_PAUSADA and ej.proxima_ejecucion and now < ej.proxima_ejecucion:
             continue
+        if ej.contacto_id and not _acquire_contact_lock(ej.contacto_id):
+            continue  # otra task está procesando este contacto; se reintenta el próximo minuto
         try:
             _avanzar_ejecucion(ej)
         except Exception as e:
             logger.error('Error avanzando ejecución %s: %s', ej.pk, e)
+        finally:
+            if ej.contacto_id:
+                _release_contact_lock(ej.contacto_id)
 
     # tiempo_en_etapa trigger: find contacts stalled > N days
     for flujo in Flujo.objects.filter(activo=True, trigger_tipo=Flujo.TRIGGER_TIEMPO_ETAPA):
@@ -779,13 +946,37 @@ def avanzar_flujos():
         if not nodo_inicio:
             continue
         for contacto in qs[:50]:
-            ej = EjecucionFlujo.objects.create(
-                flujo=flujo, contacto=contacto,
-                nodo_actual=nodo_inicio, status=EjecucionFlujo.STATUS_EN_CURSO,
-            )
+            if not _acquire_contact_lock(contacto.pk):
+                continue  # otra task está procesando este contacto; se reintenta el próximo minuto
             try:
+                ej = EjecucionFlujo.objects.create(
+                    flujo=flujo, contacto=contacto,
+                    nodo_actual=nodo_inicio, status=EjecucionFlujo.STATUS_EN_CURSO,
+                )
                 _avanzar_ejecucion(ej)
             except Exception as e:
                 logger.error('Error iniciando flujo %s para contacto %s: %s', flujo.pk, contacto.pk, e)
+            finally:
+                _release_contact_lock(contacto.pk)
+
+
+@shared_task(name='automations.purgar_logs_antiguos')
+def purgar_logs_antiguos():
+    """Periodic task: delete API/webhook/automation logs older than LOG_RETENTION_DAYS."""
+    from django.conf import settings
+    from apps.integrations.models import WebhookLog
+    from apps.whatsapp.models import LogAPIWhatsApp
+    from .models import AutomatizacionLog
+
+    cutoff = timezone.now() - timedelta(days=settings.LOG_RETENTION_DAYS)
+
+    deleted_wa, _ = LogAPIWhatsApp.objects.filter(created_at__lt=cutoff).delete()
+    deleted_webhook, _ = WebhookLog.objects.filter(created_at__lt=cutoff).delete()
+    deleted_autom, _ = AutomatizacionLog.objects.filter(ejecutado_at__lt=cutoff).delete()
+
+    logger.info(
+        'Purga de logs (> %d días): LogAPIWhatsApp=%d, WebhookLog=%d, AutomatizacionLog=%d',
+        settings.LOG_RETENTION_DAYS, deleted_wa, deleted_webhook, deleted_autom,
+    )
 
 

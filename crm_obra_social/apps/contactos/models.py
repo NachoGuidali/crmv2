@@ -21,8 +21,10 @@ COLOR_CHOICES = [
 class Pipeline(models.Model):
     nombre      = models.CharField(max_length=100, verbose_name='Nombre')
     descripcion = models.TextField(blank=True, verbose_name='Descripción')
-    activo      = models.BooleanField(default=True, verbose_name='Activo')
-    created_at  = models.DateTimeField(auto_now_add=True)
+    activo         = models.BooleanField(default=True, verbose_name='Activo')
+    campos_tarjeta = models.JSONField(default=list, blank=True, verbose_name='Campos en tarjeta kanban',
+        help_text='Slugs de campos a mostrar en las tarjetas del kanban.')
+    created_at     = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['nombre']
@@ -40,8 +42,10 @@ class PipelineStage(models.Model):
     color      = models.CharField(max_length=20, choices=COLOR_CHOICES, default='primary', verbose_name='Color')
     es_ganado  = models.BooleanField(default=False, verbose_name='Etapa de cierre ganado',
                                      help_text='Ej: "Afiliado" o "Cerrado ganado". Útil para reportes y automatizaciones.')
-    es_perdido = models.BooleanField(default=False, verbose_name='Etapa de cierre perdido',
-                                     help_text='Ej: "Perdido" o "Descartado". Habilita el campo "Motivo de pérdida".')
+    es_perdido        = models.BooleanField(default=False, verbose_name='Etapa de cierre perdido',
+                                            help_text='Ej: "Perdido" o "Descartado". Habilita el campo "Motivo de pérdida".')
+    campos_requeridos = models.JSONField(default=list, blank=True, verbose_name='Campos requeridos para entrar',
+        help_text='Slugs de campos que el contacto debe tener completados para avanzar a esta etapa.')
 
     class Meta:
         ordering = ['pipeline', 'orden', 'nombre']
@@ -103,12 +107,14 @@ class CampoPersonalizado(models.Model):
     TIPO_FECHA    = 'fecha'
     TIPO_BOOLEANO = 'booleano'
     TIPO_LISTA    = 'lista'
+    TIPO_ARCHIVO  = 'archivo'
     TIPO_CHOICES = [
         ('texto',    'Texto libre'),
         ('numero',   'Número'),
         ('fecha',    'Fecha'),
         ('booleano', 'Sí / No'),
         ('lista',    'Lista de opciones'),
+        ('archivo',  'Archivo / Adjunto'),
     ]
 
     ENTIDAD_CONTACTO    = 'contacto'

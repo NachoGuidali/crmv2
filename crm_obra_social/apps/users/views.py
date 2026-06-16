@@ -8,7 +8,7 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, UpdateView, ListView, DetailView, View
 
 from .forms import LoginForm, UserCreateForm, UserUpdateForm, ProfileForm
-from .models import User
+from .models import User, RolPersonalizado, MENU_PERMISOS
 
 
 class LoginView(View):
@@ -41,6 +41,11 @@ class LogoutView(LoginRequiredMixin, View):
 class SupervisorRequiredMixin(UserPassesTestMixin):
     def test_func(self):
         return self.request.user.can_see_all_leads
+
+
+class SuperadminRequiredMixin(UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.is_superadmin
 
 
 class UserListView(LoginRequiredMixin, SupervisorRequiredMixin, ListView):
@@ -125,3 +130,101 @@ class NotificacionMarkReadView(LoginRequiredMixin, View):
         notif.leida = True
         notif.save(update_fields=['leida'])
         return JsonResponse({'ok': True, 'url': notif.url})
+
+
+# ── Gestión de roles personalizados (solo superadmin) ────────
+
+_MENU_PERMISOS_DICT = dict(MENU_PERMISOS)
+
+
+class RolListView(LoginRequiredMixin, SuperadminRequiredMixin, ListView):
+    model = RolPersonalizado
+    template_name = 'users/rol_list.html'
+    context_object_name = 'roles'
+
+    def get_queryset(self):
+        from django.db.models import Count
+        return RolPersonalizado.objects.annotate(num_usuarios=Count('usuarios')).order_by('nombre')
+
+
+class RolCreateView(LoginRequiredMixin, SuperadminRequiredMixin, View):
+    template_name = 'users/rol_form.html'
+
+    def get(self, request):
+        return render(request, self.template_name, {
+            'menu_permisos': MENU_PERMISOS,
+            'rol': None,
+        })
+
+    def post(self, request):
+        nombre = request.POST.get('nombre', '').strip()
+        descripcion = request.POST.get('descripcion', '').strip()
+        permisos = [p for p in request.POST.getlist('permisos') if p in _MENU_PERMISOS_DICT]
+
+        if not nombre:
+            return render(request, self.template_name, {
+                'menu_permisos': MENU_PERMISOS, 'rol': None,
+                'error': 'El nombre es obligatorio.',
+                'form_data': request.POST,
+            })
+        if RolPersonalizado.objects.filter(nombre=nombre).exists():
+            return render(request, self.template_name, {
+                'menu_permisos': MENU_PERMISOS, 'rol': None,
+                'error': 'Ya existe un rol con ese nombre.',
+                'form_data': request.POST,
+            })
+
+        rol = RolPersonalizado.objects.create(nombre=nombre, descripcion=descripcion, permisos=permisos)
+        messages.success(request, f'Rol "{rol.nombre}" creado correctamente.')
+        return redirect('users:rol_list')
+
+
+class RolUpdateView(LoginRequiredMixin, SuperadminRequiredMixin, View):
+    template_name = 'users/rol_form.html'
+
+    def get(self, request, pk):
+        rol = get_object_or_404(RolPersonalizado, pk=pk)
+        return render(request, self.template_name, {
+            'menu_permisos': MENU_PERMISOS,
+            'rol': rol,
+        })
+
+    def post(self, request, pk):
+        rol = get_object_or_404(RolPersonalizado, pk=pk)
+        nombre = request.POST.get('nombre', '').strip()
+        descripcion = request.POST.get('descripcion', '').strip()
+        permisos = [p for p in request.POST.getlist('permisos') if p in _MENU_PERMISOS_DICT]
+
+        if not nombre:
+            return render(request, self.template_name, {
+                'menu_permisos': MENU_PERMISOS, 'rol': rol,
+                'error': 'El nombre es obligatorio.',
+            })
+        if RolPersonalizado.objects.filter(nombre=nombre).exclude(pk=pk).exists():
+            return render(request, self.template_name, {
+                'menu_permisos': MENU_PERMISOS, 'rol': rol,
+                'error': 'Ya existe un rol con ese nombre.',
+            })
+
+        from django.core.cache import cache
+        for u in rol.usuarios.only('pk', 'rol_custom_id'):
+            cache.delete(f'nav_perms_{u.pk}_{rol.pk}')
+
+        rol.nombre = nombre
+        rol.descripcion = descripcion
+        rol.permisos = permisos
+        rol.save()
+        messages.success(request, f'Rol "{rol.nombre}" actualizado correctamente.')
+        return redirect('users:rol_list')
+
+
+class RolDeleteView(LoginRequiredMixin, SuperadminRequiredMixin, View):
+    def post(self, request, pk):
+        rol = get_object_or_404(RolPersonalizado, pk=pk)
+        if rol.usuarios.exists():
+            messages.error(request, f'No se puede eliminar "{rol.nombre}": tiene usuarios asignados.')
+        else:
+            nombre = rol.nombre
+            rol.delete()
+            messages.success(request, f'Rol "{nombre}" eliminado.')
+        return redirect('users:rol_list')

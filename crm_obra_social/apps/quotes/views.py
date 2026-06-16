@@ -66,7 +66,7 @@ class CotizacionPDFView(LoginRequiredMixin, View):
 
 
 class CotizacionWhatsAppSendView(LoginRequiredMixin, View):
-    """Send cotizacion PDF to the contacto via WhatsApp."""
+    """Queue sending the cotizacion PDF to the contacto via WhatsApp."""
 
     def post(self, request, pk):
         cotizacion = get_object_or_404(Cotizacion, pk=pk)
@@ -75,17 +75,7 @@ class CotizacionWhatsAppSendView(LoginRequiredMixin, View):
             messages.error(request, 'El contacto no tiene teléfono registrado.')
             return redirect('quotes:detail', pk=pk)
 
-        # Ensure PDF exists
-        if not cotizacion.pdf_file:
-            pdf_bytes = generate_cotizacion_pdf(cotizacion)
-            cotizacion.pdf_file.save(f'cotizacion_{pk}.pdf', ContentFile(pdf_bytes), save=True)
-
-        from django.conf import settings
-        doc_url = request.build_absolute_uri(cotizacion.pdf_file.url)
-        from apps.whatsapp.sender import send_media_message
-        try:
-            send_media_message(contacto.telefono, doc_url, 'document', filename=f'Cotizacion_{pk}.pdf', caption=f'Cotización de plan {cotizacion.plan}')
-            messages.success(request, 'Cotización enviada por WhatsApp.')
-        except Exception as e:
-            messages.error(request, f'Error al enviar: {e}')
+        from .tasks import send_cotizacion_whatsapp_task
+        send_cotizacion_whatsapp_task.delay(cotizacion.pk)
+        messages.success(request, 'Cotización en cola de envío por WhatsApp.')
         return redirect('quotes:detail', pk=pk)

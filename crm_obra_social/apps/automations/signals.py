@@ -50,16 +50,16 @@ def contacto_post_save(sender, instance, created, **kwargs):
     if getattr(instance, '_skip_automation', False):
         return
 
-    from apps.automations.tasks import disparar_evento, _get_field_value
+    from django.db import transaction
+    from apps.automations.tasks import disparar_evento_task, _get_field_value, _safe_delay
     from apps.automations.models import ReglaAutomatizacion as R
 
     contacto_pk = instance.pk
 
     if created:
-        try:
-            disparar_evento(contacto_id=contacto_pk, evento_tipo=R.EVENTO_CREADO)
-        except Exception as e:
-            logger.error('Error procesando evento "creado" contacto #%s: %s', contacto_pk, e)
+        transaction.on_commit(
+            lambda: _safe_delay(disparar_evento_task, contacto_id=contacto_pk, evento_tipo=R.EVENTO_CREADO)
+        )
         return
 
     old_values = getattr(instance, '_pre_save_values', {})
@@ -74,19 +74,27 @@ def contacto_post_save(sender, instance, created, **kwargs):
 
         try:
             if campo_modelo == 'stage_id':
-                disparar_evento(
-                    contacto_id=contacto_pk, evento_tipo=R.EVENTO_ETAPA_CAMBIA,
-                    stage_anterior_id=old_raw, stage_nuevo_id=new_raw,
+                transaction.on_commit(
+                    lambda cid=contacto_pk, o=old_raw, n=new_raw: _safe_delay(
+                        disparar_evento_task, contacto_id=cid, evento_tipo=R.EVENTO_ETAPA_CAMBIA,
+                        stage_anterior_id=o, stage_nuevo_id=n,
+                    )
                 )
             elif campo_modelo == 'agente_id':
-                disparar_evento(contacto_id=contacto_pk, evento_tipo=R.EVENTO_RESPONSABLE_CAMBIA)
+                transaction.on_commit(
+                    lambda cid=contacto_pk: _safe_delay(
+                        disparar_evento_task, contacto_id=cid, evento_tipo=R.EVENTO_RESPONSABLE_CAMBIA,
+                    )
+                )
 
             valor_anterior = _old_friendly_value(campo_amigable, old_raw)
             valor_nuevo = _get_field_value(instance, campo_amigable)
             for evento_tipo in (R.EVENTO_CAMPO_CAMBIA, R.EVENTO_CAMPO_IGUAL):
-                disparar_evento(
-                    contacto_id=contacto_pk, evento_tipo=evento_tipo,
-                    campo=campo_amigable, valor_anterior=valor_anterior, valor_nuevo=valor_nuevo,
+                transaction.on_commit(
+                    lambda cid=contacto_pk, et=evento_tipo, c=campo_amigable, va=valor_anterior, vn=valor_nuevo: _safe_delay(
+                        disparar_evento_task, contacto_id=cid, evento_tipo=et,
+                        campo=c, valor_anterior=va, valor_nuevo=vn,
+                    )
                 )
         except Exception as e:
             logger.error('Error procesando evento de campo "%s" (%s→%s) contacto #%s: %s',
