@@ -93,28 +93,41 @@ def _eval_operador(valor_actual, operador, valor_esperado):
     from .models import ReglaAutomatizacion as R
 
     sval = '' if valor_actual is None else str(valor_actual)
+    sesp = '' if valor_esperado is None else str(valor_esperado)
     if operador == R.OP_IGUAL:
-        return sval == valor_esperado
+        return sval == sesp
     if operador == R.OP_DISTINTO:
-        return sval != valor_esperado
+        return sval != sesp
     if operador == R.OP_MAYOR:
         try:
-            return float(sval) > float(valor_esperado)
+            return float(sval) > float(sesp)
         except (TypeError, ValueError):
             # Fechas en formato ISO (YYYY-MM-DD) comparan correctamente como strings
-            return bool(sval) and bool(valor_esperado) and sval > valor_esperado
+            return bool(sval) and bool(sesp) and sval > sesp
     if operador == R.OP_MENOR:
         try:
-            return float(sval) < float(valor_esperado)
+            return float(sval) < float(sesp)
         except (TypeError, ValueError):
-            return bool(sval) and bool(valor_esperado) and sval < valor_esperado
+            return bool(sval) and bool(sesp) and sval < sesp
     if operador == R.OP_CONTIENE:
-        return valor_esperado.lower() in sval.lower()
+        return sesp.lower() in sval.lower()
     if operador == R.OP_VACIO:
         return not sval
     if operador == R.OP_NO_VACIO:
         return bool(sval)
     return False
+
+
+def _resolver_valor_condicion(contacto, valor):
+    """Resuelve el valor de comparación de una condición: literal, '@today'
+    (fecha actual al momento de evaluar) o '@field:<slug>' (valor actual de
+    otro campo del mismo contacto/negociación) — misma convención que ya usa
+    `_accion_cambiar_campo` para "copiar de campo"."""
+    if valor == '@today':
+        return timezone.localdate().isoformat()
+    if isinstance(valor, str) and valor.startswith('@field:'):
+        return _get_field_value(contacto, valor[len('@field:'):])
+    return valor
 
 
 def _evaluar_condiciones(contacto, condiciones):
@@ -131,7 +144,8 @@ def _evaluar_condiciones(contacto, condiciones):
         if not campo or not operador:
             continue
         actual = _get_field_value(contacto, campo)
-        resultados.append(_eval_operador(actual, operador, valor))
+        esperado = _resolver_valor_condicion(contacto, valor)
+        resultados.append(_eval_operador(actual, operador, esperado))
         conectores.append((cond.get('conector') or 'Y').strip().upper())
 
     if not resultados:
@@ -300,11 +314,14 @@ def _ejecutar_automatizacion_deal(regla, now):
 
     count = 0
     for deal in candidatos:
-        if deal.contacto_id:
-            resultado = _dispatch_action(regla, deal.contacto, now)
-            AutomatizacionLog.objects.create(regla=regla, contacto=deal.contacto, resultado=resultado, exitoso=True)
-            count += 1
-            logger.info('Regla "%s" → deal #%d (contacto #%d): %s', regla.nombre, deal.pk, deal.contacto_id, resultado)
+        if not deal.contacto_id:
+            continue
+        if not _evaluar_condiciones(deal.contacto, regla.condiciones):
+            continue
+        resultado = _dispatch_action(regla, deal.contacto, now)
+        AutomatizacionLog.objects.create(regla=regla, contacto=deal.contacto, resultado=resultado, exitoso=True)
+        count += 1
+        logger.info('Regla "%s" → deal #%d (contacto #%d): %s', regla.nombre, deal.pk, deal.contacto_id, resultado)
     return count
 
 
@@ -601,8 +618,8 @@ def _evaluar_condicion_nodo(contacto, data):
     if not campo:
         return True
     operador  = data.get('operador', 'eq')
-    valor_esp = data.get('valor', '')
     valor_act = _get_field_value(contacto, campo)
+    valor_esp = _resolver_valor_condicion(contacto, data.get('valor', ''))
     return _eval_operador(valor_act, operador, valor_esp)
 
 

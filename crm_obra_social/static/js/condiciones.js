@@ -42,6 +42,12 @@ function condicionCampoOptions(registry, currentValue, includeAny) {
  * Control de "valor" dinámico según el tipo del campo seleccionado:
  * select con opciones reales (etapas, prioridad, origen, listas personalizadas, etc.),
  * input numérico, input de fecha, o input de texto libre por defecto.
+ *
+ * Para campos tipo "date" agrega un selector Fecha fija / Otro campo / Hoy,
+ * guardando el resultado en un input oculto con la misma convención que ya
+ * usa la Acción "Cambiar campo" para "copiar de campo": '@field:<slug>' o,
+ * para "hoy", el token '@today' (resuelto del lado del servidor al momento
+ * de evaluar la condición).
  */
 function condicionValorControl(registry, campoValue, currentValue, opts = {}) {
   const { name = null, size = 'sm', className = 'cond-valor' } = opts;
@@ -61,9 +67,73 @@ function condicionValorControl(registry, campoValue, currentValue, opts = {}) {
     return `<input type="number" class="form-control form-control${sizeSuffix} ${className}"${nameAttr} value="${escCondHtml(cur)}">`;
   }
   if (def && def.type === 'date') {
-    return `<input type="date" class="form-control form-control${sizeSuffix} ${className}"${nameAttr} value="${escCondHtml(cur)}">`;
+    const isFieldRef = typeof cur === 'string' && cur.startsWith('@field:');
+    const isToday = cur === '@today';
+    const srcField = isFieldRef ? cur.slice(7) : '';
+    const fixedVal = (!isFieldRef && !isToday) ? cur : '';
+    const otherDateFields = (registry || []).filter(f => f.type === 'date' && f.value !== campoValue);
+    const fieldOpts = otherDateFields.map(f =>
+      `<option value="${escCondHtml(f.value)}" ${f.value === srcField ? 'selected' : ''}>${escCondHtml(f.label)}</option>`
+    ).join('');
+    const uid = 'cvd' + Math.random().toString(36).slice(2, 9);
+    return `
+      <div class="cond-valor-date-wrap">
+        <div class="btn-group btn-group-sm mb-1" role="group">
+          <input type="radio" class="btn-check" name="${uid}_tipo" id="${uid}_fijo" value="fijo" autocomplete="off" ${(!isFieldRef && !isToday) ? 'checked' : ''}>
+          <label class="btn btn-outline-secondary py-0" for="${uid}_fijo">Fecha</label>
+          <input type="radio" class="btn-check" name="${uid}_tipo" id="${uid}_campo" value="campo" autocomplete="off" ${isFieldRef ? 'checked' : ''}>
+          <label class="btn btn-outline-secondary py-0" for="${uid}_campo">Otro campo</label>
+          <input type="radio" class="btn-check" name="${uid}_tipo" id="${uid}_hoy" value="hoy" autocomplete="off" ${isToday ? 'checked' : ''}>
+          <label class="btn btn-outline-secondary py-0" for="${uid}_hoy">Hoy</label>
+        </div>
+        <div class="cond-valor-sub" data-show="fijo" style="${(!isFieldRef && !isToday) ? '' : 'display:none'}">
+          <input type="date" class="form-control form-control${sizeSuffix} cond-valor-fijo-ctrl" value="${escCondHtml(fixedVal)}">
+        </div>
+        <div class="cond-valor-sub" data-show="campo" style="${isFieldRef ? '' : 'display:none'}">
+          <select class="form-select form-select${sizeSuffix} cond-valor-campo-ctrl">
+            <option value="">— Elegir campo —</option>${fieldOpts}
+          </select>
+        </div>
+        <input type="hidden" class="${className}"${nameAttr} value="${escCondHtml(cur)}">
+      </div>`;
   }
   return `<input type="text" class="form-control form-control${sizeSuffix} ${className}"${nameAttr} value="${escCondHtml(cur)}" placeholder="valor...">`;
+}
+
+/**
+ * Cablea los controles del bloque "Fecha / Otro campo / Hoy" generado por
+ * `condicionValorControl` para un campo tipo date: mantiene sincronizado el
+ * input oculto `.cond-valor` y dispara un evento 'change' (con bubbling)
+ * para que los listeners existentes (onChange / submit) lo detecten.
+ * Debe llamarse después de insertar el HTML de `condicionValorControl` en
+ * el DOM. No hace nada si el wrap no contiene un control de fecha.
+ */
+function wireCondicionValorDate(wrap) {
+  const dateWrap = wrap.querySelector('.cond-valor-date-wrap');
+  if (!dateWrap) return;
+  const hidden = dateWrap.querySelector('input[type="hidden"]');
+  const fijoInput = dateWrap.querySelector('.cond-valor-fijo-ctrl');
+  const campoSelect = dateWrap.querySelector('.cond-valor-campo-ctrl');
+
+  function sync() {
+    const checked = dateWrap.querySelector('.btn-check:checked');
+    const tipo = checked ? checked.value : 'fijo';
+    dateWrap.querySelectorAll('.cond-valor-sub').forEach(sub => {
+      sub.style.display = sub.dataset.show === tipo ? '' : 'none';
+    });
+    let val = '';
+    if (tipo === 'campo') val = campoSelect.value ? `@field:${campoSelect.value}` : '';
+    else if (tipo === 'hoy') val = '@today';
+    else val = fijoInput ? fijoInput.value : '';
+    hidden.value = val;
+    hidden.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  dateWrap.querySelectorAll('.btn-check').forEach(r => r.addEventListener('change', sync));
+  if (fijoInput) {
+    fijoInput.addEventListener('input', sync);
+    fijoInput.addEventListener('change', sync);
+  }
+  if (campoSelect) campoSelect.addEventListener('change', sync);
 }
 
 /**
@@ -127,6 +197,7 @@ function renderCondicionesEditor(container, conditions, registry, operadores, on
     valWrap.className = 'cond-valor-wrap';
     valWrap.style.maxWidth = '200px';
     valWrap.innerHTML = condicionValorControl(registry, cond.campo, cond.valor || '');
+    wireCondicionValorDate(valWrap);
 
     function syncValVisibility() {
       valWrap.style.display = (opSel.value === 'empty' || opSel.value === 'not_empty') ? 'none' : '';
@@ -144,6 +215,7 @@ function renderCondicionesEditor(container, conditions, registry, operadores, on
 
     campoSel.addEventListener('change', () => {
       valWrap.innerHTML = condicionValorControl(registry, campoSel.value, '');
+      wireCondicionValorDate(valWrap);
       syncValVisibility();
       onChange(syncFromDOM());
     });
