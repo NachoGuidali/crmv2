@@ -477,6 +477,7 @@ class HistorialEtapa(models.Model):
         verbose_name = 'Historial de etapa'
         verbose_name_plural = 'Historial de etapas'
         ordering = ['-created_at']
+        indexes = [models.Index(fields=['contacto', '-created_at'])]
 
     def __str__(self):
         ant = self.etapa_anterior.nombre if self.etapa_anterior else '—'

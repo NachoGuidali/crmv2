@@ -54,6 +54,7 @@ class DealHistory(models.Model):
         ordering = ['-created_at']
         verbose_name = 'Historial de etapa'
         verbose_name_plural = 'Historial de etapas'
+        indexes = [models.Index(fields=['deal', '-created_at'])]
 
     def __str__(self):
         ant = self.stage_anterior.nombre if self.stage_anterior else '—'
