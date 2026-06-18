@@ -130,6 +130,8 @@ CACHES = {
     }
 }
 
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+
 # Evolution API (WhatsApp via QR — sin API oficial de Meta)
 EVOLUTION_API_URL = os.environ.get('EVOLUTION_API_URL', 'http://evolution-api:8080')
 EVOLUTION_API_KEY = os.environ.get('EVOLUTION_API_KEY', '')
