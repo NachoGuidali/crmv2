@@ -326,7 +326,7 @@ class AutomatizacionLog(models.Model):
     """Registro de ejecuciones de reglas de automatización, por contacto."""
     regla       = models.ForeignKey(ReglaAutomatizacion, on_delete=models.CASCADE, related_name='logs')
     contacto    = models.ForeignKey('contactos.Contacto', null=True, blank=True, on_delete=models.SET_NULL, related_name='automatizacion_logs')
-    ejecutado_at = models.DateTimeField(auto_now_add=True)
+    ejecutado_at = models.DateTimeField(auto_now_add=True, db_index=True)
     resultado   = models.TextField(blank=True)
     exitoso     = models.BooleanField(default=True)
     evento      = models.CharField(max_length=200, blank=True,
@@ -336,3 +336,4 @@ class AutomatizacionLog(models.Model):
         verbose_name = 'Log de automatización'
         verbose_name_plural = 'Logs de automatización'
         ordering = ['-ejecutado_at']
+        indexes = [models.Index(fields=['regla', 'contacto'])]

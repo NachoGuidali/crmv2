@@ -335,7 +335,7 @@ class LogAPIWhatsApp(models.Model):
     response_status = models.IntegerField(null=True)
     response_body = models.TextField(blank=True)
     duracion_ms = models.IntegerField(null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     exitoso = models.BooleanField(default=True)
 
     class Meta:

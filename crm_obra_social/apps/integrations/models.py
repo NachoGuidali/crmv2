@@ -70,7 +70,7 @@ class WebhookLog(models.Model):
     contacto_creado = models.ForeignKey(
         'contactos.Contacto', null=True, blank=True, on_delete=models.SET_NULL, related_name='webhook_logs',
     )
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         verbose_name = 'Log de webhook'

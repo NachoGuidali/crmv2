@@ -327,7 +327,7 @@ class Contacto(models.Model):
         help_text='Columnas adicionales importadas y valores de campos personalizados.',
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
