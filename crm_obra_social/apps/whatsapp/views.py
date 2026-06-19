@@ -1308,10 +1308,8 @@ class BotToggleView(LoginRequiredMixin, View):
         import threading
         import requests as req
         from django.conf import settings as dj_settings
-        url = getattr(dj_settings, 'N8N_WEBHOOK_URL', '')
-        if not url:
-            return
 
+        url = getattr(dj_settings, 'N8N_WEBHOOK_URL', '')
         payload = {
             'event': 'bot_status_changed',
             'phone': conv.telefono,
@@ -1319,13 +1317,24 @@ class BotToggleView(LoginRequiredMixin, View):
             'conversacion_id': conv.pk,
         }
 
-        def _send():
-            try:
-                req.post(url, json=payload, timeout=5)
-            except Exception as e:
-                logger.warning('n8n bot status notify failed: %s', e)
+        # Al encender el bot, notificar además al webhook dedicado de n8n que
+        # resetea la memoria/contexto de la conversación.
+        encendido_url = getattr(dj_settings, 'N8N_BOT_ENCENDIDO_WEBHOOK_URL', '') if activo else ''
 
-        threading.Thread(target=_send, daemon=True).start()
+        def _send():
+            if url:
+                try:
+                    req.post(url, json=payload, timeout=5)
+                except Exception as e:
+                    logger.warning('n8n bot status notify failed: %s', e)
+            if encendido_url:
+                try:
+                    req.post(encendido_url, json=payload, timeout=5)
+                except Exception as e:
+                    logger.warning('n8n bot encendido notify failed: %s', e)
+
+        if url or encendido_url:
+            threading.Thread(target=_send, daemon=True).start()
 
 
 # ── Respuestas rápidas ────────────────────────────────────

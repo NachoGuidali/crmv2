@@ -145,6 +145,10 @@ SITE_URL = os.environ.get('SITE_URL', 'https://crm.supregsolutions.com')
 # n8n integration — forward incoming WhatsApp messages to this webhook (empty = disabled)
 N8N_WEBHOOK_URL = os.environ.get('N8N_WEBHOOK_URL', '')
 
+# n8n integration — notified when an agent turns the bot back on for a conversation,
+# so n8n can reset its memory/context for that chat (empty = disabled)
+N8N_BOT_ENCENDIDO_WEBHOOK_URL = os.environ.get('N8N_BOT_ENCENDIDO_WEBHOOK_URL', '')
+
 # External API key for n8n/bots to send messages via the CRM (empty = endpoint disabled)
 CRM_API_KEY = os.environ.get('CRM_API_KEY', '')
 
