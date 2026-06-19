@@ -524,6 +524,21 @@ class DashboardSupervisorView(SupervisorRequiredMixin, View):
         return redirect(f"{request.path}?agente={desde_pk}")
 
 
+class AgenteToggleDisponibleView(SupervisorRequiredMixin, View):
+    """Activa/desactiva 'disponible' de un agente desde Supervisión. Al pasar a
+    no disponible, sus conversaciones se redistribuyen automáticamente (señal
+    en apps/whatsapp/apps.py)."""
+
+    def post(self, request, pk):
+        agente = get_object_or_404(User, pk=pk, role=User.ROLE_AGENTE)
+        agente.disponible = not agente.disponible
+        agente.save(update_fields=['disponible'])
+        estado = 'disponible' if agente.disponible else 'no disponible'
+        messages.success(request, f'{agente.get_full_name() or agente.username} marcado como {estado}.')
+        redirect_to = request.POST.get('next') or reverse_lazy('whatsapp:dashboard_supervisor')
+        return redirect(redirect_to)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class HandoffAPIView(View):
     """

@@ -39,9 +39,16 @@
             <tr class="{% if agente_sel and agente_sel.pk == a.pk %}table-active{% endif %}">
               <td>
                 <div class="fw-semibold">{{ a.get_full_name|default:a.username }}</div>
-                <div class="small text-muted">
+                <div class="small text-muted d-flex align-items-center gap-2">
                   {% if a.disponible %}<span class="text-success"><i class="bi bi-circle-fill" style="font-size:.5rem;"></i> Disponible</span>
                   {% else %}<span class="text-muted"><i class="bi bi-circle-fill" style="font-size:.5rem;"></i> No disponible</span>{% endif %}
+                  <form method="post" action="{% url 'whatsapp:agente_toggle_disponible' a.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <button type="submit" class="btn btn-link btn-sm p-0 text-decoration-none" title="{% if a.disponible %}Sacar de la cola de asignación{% else %}Volver a incluir en la cola de asignación{% endif %}">
+                      {% if a.disponible %}<i class="bi bi-pause-circle"></i>{% else %}<i class="bi bi-play-circle"></i>{% endif %}
+                    </button>
+                  </form>
                 </div>
               </td>
               <td class="text-center">{{ a.total }}</td>

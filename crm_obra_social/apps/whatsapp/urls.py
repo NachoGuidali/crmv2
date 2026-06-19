@@ -15,6 +15,8 @@ urlpatterns = [
     # Dashboards
     path('dashboard/', views.DashboardAgenteView.as_view(), name='dashboard_agente'),
     path('dashboard/supervisor/', views.DashboardSupervisorView.as_view(), name='dashboard_supervisor'),
+    path('dashboard/supervisor/agente/<int:pk>/toggle-disponible/',
+         views.AgenteToggleDisponibleView.as_view(), name='agente_toggle_disponible'),
 
     # Inbox
     path('inbox/', views.InboxView.as_view(), name='inbox'),
